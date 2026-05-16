@@ -1,0 +1,212 @@
+# Build Phases — Agentic Workforce Platform
+
+**Date:** 2026-05-16
+**Branch:** feature/initial-build
+**Approach:** Each phase produces a buildable, testable increment. Phases are sequential — each depends on the prior.
+
+---
+
+## Phase Summary
+
+| Phase | Name | Depends On | What It Delivers |
+|-------|------|------------|------------------|
+| 1 | Domain Alignment | — | Entities, enums, and interfaces match the architecture docs exactly |
+| 2 | Data Layer | Phase 1 | EF Core configurations, migrations, repository implementations, DB seeds |
+| 3 | API Vertical Slices (Core) | Phase 2 | Projects, Tasks, Sessions, Members CRUD endpoints with auth |
+| 4 | API Vertical Slices (Extended) | Phase 3 | Workflows, Knowledge, Documents, Events, Cost/Budget endpoints |
+| 5 | Real-time & Events | Phase 4 | SignalR hub, Redis pub/sub, project console, SSE streaming |
+| 6 | Agent Runtime | Phase 5 | AgentFactory, ChatClientFactory, PromptAssembler, ToolRegistry, IChatClient pipeline |
+| 7 | Agent Catalog & Tools | Phase 6 | Seed YAML agents, platform tools, context provider, verification pipeline |
+| 8 | Workflow Engine | Phase 7 | Durable Task integration, WorkflowInterpreter, node execution, human gates |
+| 9 | Audit & Compliance | Phase 8 | AuditingChatClient, Channel drain, hash chain, WORM blob writes |
+| 10 | Integration Testing | Phase 9 | End-to-end tests: create project, run agent, verify output, check audit trail |
+| 11 | Infrastructure | Phase 10 | Bicep completion, Docker images, Aspire AppHost wiring, CI/CD pipeline |
+
+---
+
+## Phase Descriptions
+
+### Phase 1: Domain Alignment
+
+The current domain entities diverge from the architecture docs (003-database-schema.md). This phase aligns them exactly:
+
+- Fix `TaskType` enum to match ADR (`AgentTask | HumanDecision | AiDecision | Action | SubWorkflow`)
+- Add missing fields to `AgenticTask` (objective, agent_name, source, output_summary, cost_usd, duration_seconds, retry_count, max_retries, created_by, format_version)
+- Add `ProjectContext` (PCD) entity and `ContextChange` history
+- Add `ProjectIntent`, `ContextMilestone`, `MilestoneSummary` entities
+- Add `ProjectDecision` (supersedable) vs current `Decision`
+- Add `HumanInputRequest` entity for workflow approval gates
+- Add `WorkflowRun` (vs current `WorkflowExecution`) and `WorkflowSchedule`
+- Add `ModelPricing`, `PromptVersion` platform entities
+- Add `SessionChannel` entity
+- Add optimistic concurrency (`Version` / xmin) to `EntityBase`
+- Add `IsActive` soft-delete to `Project`
+- Add missing enums: `TaskSource`, `IntentSource`, `ChangeType`, `AgentRole`, `FailureTier`, `ProjectTier`
+- Align `IAgentRuntime` interface to match 007-agent-implementation.md signature
+- Add missing repository interfaces (`IKnowledgeStore` expansion, `IEventPublisher`, `IDocumentStore`, `IBudgetService`)
+- Remove unused `System.Numerics` import from ProjectDocument
+
+**Verification:** `dotnet build AgenticWorkforce.slnx` exits 0, all entities match 003-database-schema.md
+
+---
+
+### Phase 2: Data Layer
+
+- EF Core configurations for all new/updated entities
+- Initial EF Core migration
+- Repository implementations for aggregate roots (`ProjectRepository`, `TaskRepository`, `SessionRepository`, `WorkflowRepository`)
+- `AppDbContext` updated with all new DbSets
+- Worker `Program.cs` fixed (UseVector, proper DI)
+- Central Package Management (`Directory.Packages.props`)
+- `appsettings.json` / `appsettings.Development.json` with documented config keys
+
+**Verification:** `dotnet build` exits 0, `dotnet ef migrations list` shows migration, Testcontainers test creates DB and runs basic CRUD
+
+---
+
+### Phase 3: API Vertical Slices (Core)
+
+The primary CRUD endpoints that constitute an MVP API:
+
+- `Api/Features/Projects/` — Create, Get, List, Update, Delete, Pause, Resume, Archive
+- `Api/Features/Tasks/` — List, Get, Create, Approve, Reject, Retry, Cancel, Board
+- `Api/Features/Sessions/` — Create, Get, List, Messages
+- `Api/Features/Members/` — List, Add, Update, Remove, TransferOwnership
+- `Api/Features/Team/` — List, Add, Remove, UpdatePrompt, Seed
+- `Api/Features/Auth/` — Me, UpdateMe, CreateApiKey, ListApiKeys, RevokeApiKey
+- Project-scoped authorization handler (BOLA prevention)
+- Request/response DTOs with validation
+- Pagination support (`PagedResult<T>`)
+- `Idempotency-Key` middleware for create operations
+
+**Verification:** `dotnet test` — all unit + integration tests pass against real PostgreSQL
+
+---
+
+### Phase 4: API Vertical Slices (Extended)
+
+- `Api/Features/Workflows/` — List, Get, Create, Update, Execute, Cancel
+- `Api/Features/Knowledge/` — Learnings CRUD, approve/retract, search
+- `Api/Features/Documents/` — Upload, List, Get, Delete, chunks
+- `Api/Features/Events/` — Console timeline, filtered by type/severity/agent
+- `Api/Features/Costs/` — Budget CRUD, cost breakdown per project/task/session
+- `Api/Features/Catalog/` — Agent catalog list, detail
+- `Api/Features/Executions/` — Dispatch, Run ad-hoc, status
+- `Api/Features/Admin/` — Platform admin endpoints (users, platform config)
+
+**Verification:** `dotnet test` passes, Swagger shows all endpoints, auth policies enforced
+
+---
+
+### Phase 5: Real-time & Events
+
+- SignalR hub (`ProjectHub`) with Redis backplane
+- Channel groups: `project:{id}`, `session:{id}`, `user:{id}`
+- `IEventPublisher` implementation (Redis pub/sub → SignalR)
+- SSE endpoint for agent response streaming (`Results.ServerSentEvents`)
+- SSE token exchange (`POST /api/v1/auth/sse-token`)
+- Event publishing from repository save operations
+- Project console event feed (real-time + historical)
+
+**Verification:** Integration test connects to SignalR hub, receives event on project mutation
+
+---
+
+### Phase 6: Agent Runtime
+
+The core agent execution infrastructure in `AgenticWorkforce.Agents`:
+
+- `Runtime/` — `AgentRuntime`, `AgentFactory` (6-step construction), `ChatClientFactory`
+- `Prompts/` — `PromptAssembler` (5-layer composition), org/category prompt files
+- `Tools/` — `ToolRegistry`, `ExecutionDomain` enum, tool registration DI
+- `Middleware/` — `BudgetEnforcingChatClient`, `CostTrackingChatClient`, `ContentSafetyChatClient`
+- `Context/` — `ProjectContextProvider`, `ContextAssembler` (priority-based token budget)
+- `Catalog/` — `AgentCatalogResolver`, `AgentSeedService` (YAML → DB)
+- `DependencyInjection.cs` — `AddAgentServices()` extension method
+- Worker integration: `IAgentRuntime` registered and callable
+
+**Verification:** `dotnet build` exits 0, unit test creates agent from catalog entry and executes mock LLM call
+
+---
+
+### Phase 7: Agent Catalog & Tools
+
+- Seed YAML files for all 16 agents (project.director, project.planner, etc.)
+- Platform tools (`Tools/Project/`) — 15 in-process tools
+- Common tools (`Tools/Common/`) — file, shell, web (sandbox stubs)
+- Security tools (`Tools/Security/`) — code scan, deps scan, secret scan
+- Research tools (`Tools/Research/`) — deep search, extract, evaluate
+- `Verification/` — `VerificationPipeline`, `SchemaVerifier`, `RuleVerifier`, `AgentVerifier`
+- MCP tool resolution stubs
+- `ApprovalRequiredAIFunction` HITL gate wrapper
+
+**Verification:** Agent catalog seeded to DB on startup, tools resolve from manifest, verification pipeline runs
+
+---
+
+### Phase 8: Workflow Engine
+
+- `IWorkflowEngine` implementation wrapping Durable Task SDK
+- `WorkflowInterpreter` — reads `WorkflowDefinition`, walks the graph
+- Node executors: AgentTask, HumanDecision, AiDecision, Parallel, SubWorkflow, Action
+- `HumanInputRequest` creation and `WaitForExternalEvent` approval flow
+- Task creation from workflow nodes
+- Dispatch engine: approved tasks → Durable Task activities
+- Budget enforcement at execution level
+- Kill switch (emergency stop)
+
+**Verification:** Integration test: define workflow → execute → agent node runs → human gate pauses → approve → completes
+
+---
+
+### Phase 9: Audit & Compliance
+
+- `AuditingChatClient` in IChatClient pipeline
+- `Channel<AuditRecord>` with bounded capacity + backpressure (5s timeout → `AuditBackpressureException`)
+- `AuditDrainService` (background, batches 100 records / 1s)
+- SHA-256 hash chain with sequence numbers (Redis Lua script for atomicity)
+- Blob Storage WORM write (evidence store)
+- Event Hubs publish (analytics store)
+- Daily Merkle root anchor
+- `LlmCall` table writes from `CostTrackingChatClient`
+
+**Verification:** Execute agent, verify LlmCall records in DB, audit hash chain integrity check passes
+
+---
+
+### Phase 10: Integration Testing
+
+- Full end-to-end flow: create project → add team → run objective → agent plans → approve → execute → verify output
+- Auth test coverage: every role combination, BOLA prevention
+- Budget enforcement test: exceed budget → execution halts
+- Workflow test: multi-node graph with human gate
+- Audit integrity test: tamper detection via hash chain verification
+- Knowledge test: learning extraction, deduplication, retraction
+- Performance baseline: p95 latency for core endpoints
+
+**Verification:** `dotnet test AgenticWorkforce.slnx` — all tests green
+
+---
+
+### Phase 11: Infrastructure & Deployment
+
+- Bicep modules completed (existing stubs → full resource definitions)
+- Docker images (Api, Worker) with health probes
+- Aspire AppHost wiring (all resources, connection strings, environment variables)
+- CI/CD pipeline definition (Azure DevOps YAML)
+- Trivy + gitleaks scanning
+- `scripts/` tooling (codemap, CQI, rules checks, hooks)
+- Production `appsettings.Production.json` with Key Vault references
+- README quickstart validated end-to-end
+
+**Verification:** `dotnet run --project src/AgenticWorkforce.AppHost` starts all services, health checks pass, Swagger accessible
+
+---
+
+## Execution Notes
+
+- Each phase gets its own detailed plan document (`001-phase-1-domain-alignment.md`, etc.)
+- Each phase is a PR-sized unit that can be reviewed independently
+- We build from the inside out: Domain → Data → API → Real-time → Agents → Workflows → Audit → Tests → Infra
+- No phase introduces code that doesn't compile or pass existing tests
+- Each phase plan will include exact file lists, interface signatures, and verification criteria suitable for `/goal`
