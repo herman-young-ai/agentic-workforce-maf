@@ -1,0 +1,86 @@
+# Deploy stage — Bicep deployment + health check for Api and Worker
+parameters:
+  - name: environment
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: imageTag
+    type: string
+  - name: requiresApproval
+    type: boolean
+    default: false
+
+stages:
+  - stage: Deploy_${{ parameters.environment }}
+    displayName: 'Deploy to ${{ parameters.environment }}'
+    ${{ if parameters.requiresApproval }}:
+      dependsOn: Deploy_dev
+    jobs:
+      - deployment: Deploy
+        displayName: 'Deploy Container Apps'
+        environment: ${{ parameters.environment }}
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy Bicep'
+                  inputs:
+                    azureSubscription: $(azureSubscriptionServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az deployment group create \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --template-file infra/main.bicep \
+                        --parameters infra/main.bicepparam \
+                        --parameters environment=${{ parameters.environment }} \
+                        --parameters apiContainerImage=$(containerRegistry)/$(imageRepositoryApi):${{ parameters.imageTag }} \
+                        --parameters workerContainerImage=$(containerRegistry)/$(imageRepositoryWorker):${{ parameters.imageTag }} \
+                        --parameters azureAdTenantId=$(azureAdTenantId) \
+                        --parameters azureAdClientId=$(azureAdClientId)
+
+                - task: AzureCLI@2
+                  displayName: 'Verify API health'
+                  inputs:
+                    azureSubscription: $(azureSubscriptionServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      FQDN=$(az containerapp show \
+                        --name aca-awp-api-${{ parameters.environment }} \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --query properties.configuration.ingress.fqdn -o tsv)
+
+                      for i in {1..10}; do
+                        STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/api/v1/health/live")
+                        if [ "$STATUS" == "200" ]; then
+                          echo "API health check passed."
+                          exit 0
+                        fi
+                        echo "Waiting for API to be healthy (attempt $i)..."
+                        sleep 15
+                      done
+                      echo "API health check failed after 10 attempts." && exit 1
+
+                - task: AzureCLI@2
+                  displayName: 'Verify Worker health'
+                  inputs:
+                    azureSubscription: $(azureSubscriptionServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      # Worker health is checked via its internal health endpoint
+                      # Container Apps probes handle liveness; we verify the container is running
+                      RUNNING=$(az containerapp show \
+                        --name aca-awp-worker-${{ parameters.environment }} \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --query properties.runningStatus -o tsv)
+
+                      if [ "$RUNNING" == "Running" ]; then
+                        echo "Worker is running."
+                      else
+                        echo "Worker status: $RUNNING — check logs." && exit 1
+                      fi

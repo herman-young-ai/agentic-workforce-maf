@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Sdk Name="Aspire.AppHost.Sdk" Version="9.5.2" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- CA1848/CA1873: LoggerMessage delegates — suppressed in scaffold -->
+    <NoWarn>$(NoWarn);CA1848;CA1873;CA1305</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="9.5.2" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="9.5.2" />
+    <PackageReference Include="Aspire.Hosting.Redis" Version="9.5.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgenticWorkforce.Api\AgenticWorkforce.Api.csproj" />
+    <ProjectReference Include="..\AgenticWorkforce.Worker\AgenticWorkforce.Worker.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+{"id":"CP-001","severity":"error","description":"No DateTime.Now usage (must use DateTime.UtcNow)","check":"grep -rn 'DateTime\\.Now[^a-zA-Z]' src/ --include='*.cs' | grep -v 'UtcNow' | grep -v '// allowed'","expect":"zero_results"}
+{"id":"CP-002","severity":"error","description":"No DateTimeOffset usage (must use DateTime UTC)","check":"grep -rn 'DateTimeOffset' src/ --include='*.cs' | grep -v '// allowed'","expect":"zero_results"}
+{"id":"CP-003","severity":"error","description":"No throw new Exception (must use AppException hierarchy)","check":"grep -rn 'throw new Exception(' src/ --include='*.cs'","expect":"zero_results"}
+{"id":"CP-004","severity":"error","description":"No string interpolation in logger calls","check":"grep -rn 'Log\\(.*\\$\"' src/ --include='*.cs'","expect":"zero_results"}
+{"id":"CP-005","severity":"error","description":"No Moq references","check":"grep -rn 'using Moq' src/ tests/ --include='*.cs'","expect":"zero_results"}
+{"id":"CP-006","severity":"error","description":"No InMemoryDatabase usage","check":"grep -rn 'UseInMemoryDatabase' src/ tests/ --include='*.cs'","expect":"zero_results"}
+{"id":"CP-007","severity":"warning","description":"No Console.WriteLine in src/","check":"grep -rn 'Console\\.Write' src/ --include='*.cs' | grep -v 'scripts/'","expect":"zero_results"}
+{"id":"CP-008","severity":"error","description":"No hardcoded connection strings","check":"grep -rn 'Host=.*Password=' src/ --include='*.cs' | grep -v 'appsettings'","expect":"zero_results"}

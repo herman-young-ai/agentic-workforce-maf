@@ -1,0 +1,97 @@
+# Build stage — restore, build, test, push container images (Api + Worker)
+parameters:
+  - name: imageTag
+    type: string
+
+stages:
+  - stage: Build
+    displayName: 'Build & Test'
+    jobs:
+      - job: BuildAndTest
+        displayName: 'Build, Test, Push Images'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              packageType: sdk
+              version: '10.x'
+
+          - script: dotnet restore --locked-mode
+            displayName: 'Restore (locked mode — fails if lock file is stale)'
+            env:
+              ContinuousIntegrationBuild: true
+
+          # NuGet vulnerability scan
+          - script: |
+              dotnet list AgenticWorkforce.slnx package --vulnerable --include-transitive \
+                --format json --output-version 1 > $(Agent.TempDirectory)/vuln.json
+              python3 -c "
+              import json, sys
+              data = json.load(open('$(Agent.TempDirectory)/vuln.json'))
+              found = []
+              for source in data.get('sources', []):
+                for proj in source.get('Projects', []):
+                  for fw in proj.get('Frameworks', []):
+                    for pkg in fw.get('TopLevelPackages', []) + fw.get('TransitivePackages', []):
+                      for v in pkg.get('Vulnerabilities', []):
+                        sev = v.get('Severity', '').lower()
+                        if sev in ('critical', 'high', 'moderate'):
+                          found.append(f\"{pkg['Id']} ({pkg['ResolvedVersion']}): {v['Severity']} — {v['AdvisoryUrl']}\")
+              if found:
+                print('##vso[task.logissue type=error]Vulnerable NuGet packages found:')
+                for f in found: print(f'  {f}')
+                sys.exit(1)
+              print('NuGet audit: 0 Critical/High/Moderate vulnerabilities.')
+              "
+            displayName: 'NuGet vulnerability scan'
+
+          - script: dotnet build AgenticWorkforce.slnx --no-restore -c Release
+            displayName: 'Build solution'
+
+          - script: dotnet test AgenticWorkforce.slnx --no-build -c Release --logger trx --results-directory $(Agent.TempDirectory)/TestResults --collect:"XPlat Code Coverage"
+            displayName: 'Run tests with coverage'
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: VSTest
+              testResultsFiles: '$(Agent.TempDirectory)/TestResults/**/*.trx'
+            condition: always()
+
+          - script: ./scripts/check-rules.sh --errors-only
+            displayName: 'Machine-checkable rules'
+
+          # Build & push API image
+          - task: Docker@2
+            displayName: 'Build & push API image'
+            inputs:
+              containerRegistry: $(azureSubscriptionServiceConnection)
+              repository: $(imageRepositoryApi)
+              command: buildAndPush
+              dockerfile: $(dockerfilePathApi)
+              tags: |
+                ${{ parameters.imageTag }}
+                latest
+
+          # Build & push Worker image
+          - task: Docker@2
+            displayName: 'Build & push Worker image'
+            inputs:
+              containerRegistry: $(azureSubscriptionServiceConnection)
+              repository: $(imageRepositoryWorker)
+              command: buildAndPush
+              dockerfile: $(dockerfilePathWorker)
+              tags: |
+                ${{ parameters.imageTag }}
+                latest
+
+          # Scan both images
+          - script: |
+              docker run --rm aquasec/trivy:latest image --severity HIGH,CRITICAL \
+                --exit-code 1 $(containerRegistry)/$(imageRepositoryApi):${{ parameters.imageTag }}
+            displayName: 'Trivy scan API image (Critical/High = fail)'
+
+          - script: |
+              docker run --rm aquasec/trivy:latest image --severity HIGH,CRITICAL \
+                --exit-code 1 $(containerRegistry)/$(imageRepositoryWorker):${{ parameters.imageTag }}
+            displayName: 'Trivy scan Worker image (Critical/High = fail)'

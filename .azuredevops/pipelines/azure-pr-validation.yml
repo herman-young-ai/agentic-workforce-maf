@@ -1,0 +1,75 @@
+# PR validation pipeline — runs on every PR to main/develop
+# Gates: restore, build, test, NuGet audit, Bicep validate, rules check
+trigger: none
+pr:
+  branches:
+    include: ['main', 'develop']
+
+variables:
+  - template: ../templates/variables/global.yml
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - task: UseDotNet@2
+    inputs:
+      packageType: sdk
+      version: '10.x'
+
+  - script: dotnet restore --locked-mode
+    displayName: 'Restore (locked mode)'
+    env:
+      ContinuousIntegrationBuild: true
+
+  # NuGet vulnerability scan — dotnet list package --vulnerable ALWAYS exits 0
+  - script: |
+      dotnet list AgenticWorkforce.slnx package --vulnerable --include-transitive \
+        --format json --output-version 1 > $(Agent.TempDirectory)/vuln.json
+      python3 -c "
+      import json, sys
+      data = json.load(open('$(Agent.TempDirectory)/vuln.json'))
+      found = []
+      for source in data.get('sources', []):
+        for proj in source.get('Projects', []):
+          for fw in proj.get('Frameworks', []):
+            for pkg in fw.get('TopLevelPackages', []) + fw.get('TransitivePackages', []):
+              for v in pkg.get('Vulnerabilities', []):
+                sev = v.get('Severity', '').lower()
+                if sev in ('critical', 'high', 'moderate'):
+                  found.append(f\"{pkg['Id']} ({pkg['ResolvedVersion']}): {v['Severity']} — {v['AdvisoryUrl']}\")
+      if found:
+        print('##vso[task.logissue type=error]Vulnerable NuGet packages found:')
+        for f in found: print(f'  {f}')
+        sys.exit(1)
+      print('NuGet audit: 0 Critical/High/Moderate vulnerabilities.')
+      "
+    displayName: 'NuGet vulnerability scan'
+
+  - script: dotnet build AgenticWorkforce.slnx --no-restore -c Release
+    displayName: 'Build'
+
+  - script: dotnet test AgenticWorkforce.slnx --no-build -c Release --logger trx --results-directory $(Agent.TempDirectory)/TestResults
+    displayName: 'Test'
+
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: VSTest
+      testResultsFiles: '$(Agent.TempDirectory)/TestResults/**/*.trx'
+    condition: always()
+
+  - script: ./scripts/check-rules.sh --errors-only
+    displayName: 'Machine-checkable rules'
+
+  - task: AzureCLI@2
+    displayName: 'Validate Bicep'
+    inputs:
+      azureSubscription: $(azureSubscriptionServiceConnection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az bicep build --file infra/main.bicep
+        az deployment group validate \
+          --resource-group $(resourceGroupDev) \
+          --template-file infra/main.bicep \
+          --parameters infra/main.bicepparam

@@ -1,0 +1,9 @@
+# Production environment variables
+variables:
+  environment: 'prod'
+  resourceGroup: '[PROD_RESOURCE_GROUP]'
+  corsOrigins: 'https://[PROD_DOMAIN]'
+  minReplicasApi: 2
+  maxReplicasApi: 10
+  minReplicasWorker: 2
+  maxReplicasWorker: 5

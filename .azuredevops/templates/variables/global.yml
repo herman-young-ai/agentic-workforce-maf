@@ -1,0 +1,13 @@
+# Global pipeline variables — shared across all pipelines
+# See: docs/002-architecture/ADR-009-deployment.md
+variables:
+  containerRegistry: 'icebox.azurecr.io'
+  imageRepositoryApi: 'agenticworkforce-api'
+  imageRepositoryWorker: 'agenticworkforce-worker'
+  dockerfilePathApi: 'src/AgenticWorkforce.Api/Dockerfile'
+  dockerfilePathWorker: 'src/AgenticWorkforce.Worker/Dockerfile'
+  azureSubscriptionServiceConnection: '[SUBSCRIPTION_SERVICE_CONNECTION]'
+  resourceGroupDev: '[DEV_RESOURCE_GROUP]'
+  resourceGroupProd: '[PROD_RESOURCE_GROUP]'
+  azureAdTenantId: '[TENANT_ID]'
+  azureAdClientId: '[CLIENT_ID]'

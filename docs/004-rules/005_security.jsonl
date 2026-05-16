@@ -1,0 +1,8 @@
+{"id":"SC-001","severity":"error","description":"Security analyzers must be errors in Directory.Build.props","check":"grep 'CA2100' Directory.Build.props","expect":"at_least_one"}
+{"id":"SC-002","severity":"error","description":"Rate limiting must be configured","check":"grep -rn 'AddRateLimiter' src/AgenticWorkforce.Api/ --include='*.cs'","expect":"at_least_one"}
+{"id":"SC-003","severity":"error","description":"Security headers must be configured","check":"grep -rn 'AddSecurityHeaderPolicies' src/AgenticWorkforce.Api/ --include='*.cs'","expect":"at_least_one"}
+{"id":"SC-004","severity":"error","description":"CORS must not use wildcard origins","check":"grep -rn 'AllowAnyOrigin' src/ --include='*.cs'","expect":"zero_results"}
+{"id":"SC-005","severity":"error","description":"No Process.Start with user input","check":"grep -rn 'Process\\.Start' src/ --include='*.cs' | grep -v 'scripts/'","expect":"zero_results"}
+{"id":"SC-006","severity":"error","description":"GlobalExceptionHandler must be registered","check":"grep -rn 'AddExceptionHandler<GlobalExceptionHandler>' src/AgenticWorkforce.Api/ --include='*.cs'","expect":"at_least_one"}
+{"id":"SC-007","severity":"error","description":"Authentication must be configured","check":"grep -rn 'AddMicrosoftIdentityWebApi' src/AgenticWorkforce.Api/ --include='*.cs'","expect":"at_least_one"}
+{"id":"SC-008","severity":"error","description":"CorrelationIdMiddleware must be registered","check":"grep -rn 'CorrelationIdMiddleware' src/AgenticWorkforce.Api/ --include='*.cs'","expect":"at_least_one"}

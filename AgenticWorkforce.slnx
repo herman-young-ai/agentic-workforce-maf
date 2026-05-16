@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgenticWorkforce.AppHost/AgenticWorkforce.AppHost.csproj" />
+    <Project Path="src/AgenticWorkforce.ServiceDefaults/AgenticWorkforce.ServiceDefaults.csproj" />
+    <Project Path="src/AgenticWorkforce.Api/AgenticWorkforce.Api.csproj" />
+    <Project Path="src/AgenticWorkforce.Worker/AgenticWorkforce.Worker.csproj" />
+    <Project Path="src/AgenticWorkforce.Agents/AgenticWorkforce.Agents.csproj" />
+    <Project Path="src/AgenticWorkforce.Domain/AgenticWorkforce.Domain.csproj" />
+    <Project Path="src/AgenticWorkforce.Infrastructure/AgenticWorkforce.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgenticWorkforce.Api.Tests.Unit/AgenticWorkforce.Api.Tests.Unit.csproj" />
+    <Project Path="tests/AgenticWorkforce.Api.Tests.Integration/AgenticWorkforce.Api.Tests.Integration.csproj" />
+    <Project Path="tests/AgenticWorkforce.Domain.Tests.Unit/AgenticWorkforce.Domain.Tests.Unit.csproj" />
+  </Folder>
+</Solution>

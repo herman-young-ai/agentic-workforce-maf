@@ -1,0 +1,9 @@
+# Dev environment variables
+variables:
+  environment: 'dev'
+  resourceGroup: '[DEV_RESOURCE_GROUP]'
+  corsOrigins: 'http://localhost:5173'
+  minReplicasApi: 1
+  maxReplicasApi: 2
+  minReplicasWorker: 1
+  maxReplicasWorker: 2

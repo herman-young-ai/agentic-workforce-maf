@@ -1,0 +1,60 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.swp
+*.DS_Store
+TestResults/
+*.nupkg
+*.snupkg
+
+# EF Core migrations temp
+migrations-backup/
+
+# Secrets
+appsettings.Local.json
+appsettings.*.Local.json
+.env
+.env.local
+
+# Node (React frontend)
+node_modules/
+dist/
+.vite/
+
+# Python scripts output
+__pycache__/
+*.pyc
+
+# Azure
+.azure/
+*.publishsettings
+
+# var/ — runtime directories (keep structure, ignore contents)
+var/logs/*
+var/cache/*
+var/data/*
+var/tmp/*
+!var/**/.gitkeep
+*.log
+
+# Coverage
+coverage/
+*.coverage
+*.coveragexml
+lcov.info
+
+# Claude
+CLAUDE.md
+.claude/
+
+# Rider / VS Code
+.idea/
+.vscode/settings.json
+
+# Keep
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json

@@ -1,0 +1,5 @@
+{"id":"CF-001","severity":"error","description":"No secrets in appsettings.json (check for real passwords)","check":"grep -rn 'Password=' src/ --include='appsettings.json' | grep -v '__' | grep -v 'postgres'","expect":"zero_results"}
+{"id":"CF-002","severity":"error","description":"appsettings.Local.json must be gitignored","check":"grep 'appsettings.Local.json' .gitignore","expect":"at_least_one"}
+{"id":"CF-003","severity":"error","description":".env files must be gitignored","check":"grep '^\\.env' .gitignore","expect":"at_least_one"}
+{"id":"CF-004","severity":"error","description":"NuGetAudit must be enabled","check":"grep 'NuGetAudit' Directory.Build.props","expect":"at_least_one"}
+{"id":"CF-005","severity":"error","description":"Nullable must be enabled solution-wide","check":"grep '<Nullable>enable</Nullable>' Directory.Build.props","expect":"at_least_one"}

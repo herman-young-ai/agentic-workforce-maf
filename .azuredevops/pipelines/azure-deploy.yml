@@ -1,0 +1,29 @@
+# Deploy pipeline — builds images, deploys to dev, then prod (with approval)
+trigger:
+  branches:
+    include: ['main']
+  paths:
+    exclude: ['docs/**', '*.md']
+
+variables:
+  - template: ../templates/variables/global.yml
+  - name: imageTag
+    value: $(Build.BuildId)
+
+stages:
+  - template: ../templates/stages/build-image.yml
+    parameters:
+      imageTag: $(imageTag)
+
+  - template: ../templates/stages/deploy.yml
+    parameters:
+      environment: dev
+      resourceGroup: $(resourceGroupDev)
+      imageTag: $(imageTag)
+
+  - template: ../templates/stages/deploy.yml
+    parameters:
+      environment: prod
+      resourceGroup: $(resourceGroupProd)
+      imageTag: $(imageTag)
+      requiresApproval: true

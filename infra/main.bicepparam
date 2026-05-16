@@ -1,0 +1,21 @@
+using 'main.bicep'
+
+param appName = 'agenticworkforce'
+param environment = 'dev'
+param location = 'southafricanorth'
+param apiContainerImage = 'icebox.azurecr.io/agenticworkforce-api:latest'
+param workerContainerImage = 'icebox.azurecr.io/agenticworkforce-worker:latest'
+param containerRegistry = 'icebox.azurecr.io'
+param azureAdTenantId = '__TENANT_ID__'
+param azureAdClientId = '__CLIENT_ID__'
+param postgresAdminPassword = '__FROM_KEYVAULT__'
+param postgresEntraAdminObjectId = '__MANAGED_IDENTITY_OBJECT_ID__'
+param postgresEntraAdminPrincipalName = '__MANAGED_IDENTITY_NAME__'
+param corsOrigins = 'https://your-spa-domain.azurecontainerapps.io'
+param logAnalyticsWorkspaceId = '/subscriptions/__SUB_ID__/resourceGroups/__RG__/providers/Microsoft.OperationalInsights/workspaces/__WORKSPACE__'
+param tags = {
+  application: 'agentic-workforce'
+  environment: 'dev'
+  owner: 'platform-team'
+  costCentre: 'COST-001'
+}

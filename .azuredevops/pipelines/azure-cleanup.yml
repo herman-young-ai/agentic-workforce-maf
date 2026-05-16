@@ -1,0 +1,36 @@
+# Manual cleanup pipeline — deletes dev environment resources
+trigger: none
+
+parameters:
+  - name: environment
+    displayName: Environment to clean up
+    type: string
+    values: ['dev']
+    default: dev
+
+variables:
+  - template: ../templates/variables/global.yml
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: Cleanup
+    displayName: 'Delete ${{ parameters.environment }} resources'
+    steps:
+      - task: AzureCLI@2
+        displayName: 'Delete Container Apps'
+        inputs:
+          azureSubscription: $(azureSubscriptionServiceConnection)
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            az containerapp delete \
+              --name aca-awp-api-${{ parameters.environment }} \
+              --resource-group $(resourceGroupDev) \
+              --yes || true
+
+            az containerapp delete \
+              --name aca-awp-worker-${{ parameters.environment }} \
+              --resource-group $(resourceGroupDev) \
+              --yes || true

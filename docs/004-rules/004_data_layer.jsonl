@@ -1,0 +1,4 @@
+{"id":"DL-001","severity":"error","description":"No DbContext usage outside Infrastructure project","check":"grep -rn 'AppDbContext' src/AgenticWorkforce.Api/ src/AgenticWorkforce.Worker/ src/AgenticWorkforce.Agents/ src/AgenticWorkforce.Domain/ --include='*.cs' | grep -v 'Program.cs' | grep -v 'HealthCheck'","expect":"zero_results"}
+{"id":"DL-002","severity":"error","description":"No FromSqlRaw with string concat","check":"grep -rn 'FromSqlRaw.*\\+' src/ --include='*.cs'","expect":"zero_results"}
+{"id":"DL-003","severity":"error","description":"All entities must extend EntityBase","check":"review","expect":"review"}
+{"id":"DL-004","severity":"warning","description":"pgvector extension enabled in PostgreSQL Bicep","check":"grep 'VECTOR' infra/postgresql.bicep","expect":"at_least_one"}
