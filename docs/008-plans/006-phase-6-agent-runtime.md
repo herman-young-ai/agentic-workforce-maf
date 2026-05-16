@@ -119,7 +119,7 @@ The public `AgentRuntime` implements BOTH: it satisfies the Domain contract for 
 internal sealed class AgentRuntime(
     IAgentCatalogResolver catalog,
     IAgentFactory factory,
-    IProjectAgentRepository projectAgents,
+    AppDbContext db,
     TimeProvider clock,
     ILogger<AgentRuntime> logger) : IAgentRuntime, IAgentRuntimeInternal
 {
@@ -130,7 +130,8 @@ internal sealed class AgentRuntime(
         var entry = await catalog.ResolveAsync(agentName, ct)
             ?? throw new NotFoundException("Agent", agentName);
 
-        var projectAgent = await projectAgents.GetAsync(context.ProjectId, entry.Id, ct);
+        var projectAgent = await db.ProjectAgents
+            .FirstOrDefaultAsync(pa => pa.ProjectId == context.ProjectId && pa.AgentCatalogId == entry.Id, ct);
         var timeout = options?.Timeout ?? TimeSpan.FromMinutes(5);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
