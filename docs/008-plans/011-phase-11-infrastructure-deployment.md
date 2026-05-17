@@ -6,6 +6,18 @@
 
 ---
 
+## Pre-flight
+
+Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
+
+1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
+3. Verify the previous phase's exit criteria still hold:
+   - `dotnet build AgenticWorkforce.slnx` exits 0
+   - `dotnet test AgenticWorkforce.slnx` exits 0
+
+---
+
 ## Objective
 
 Complete the deployment infrastructure: finalize Bicep modules, build Docker images, wire Aspire AppHost with all resources and environment variables, create CI/CD pipeline definitions, add security scanning, and ensure the platform runs end-to-end from a single `dotnet run` command. After this phase, the platform is ready for deployment to Azure Container Apps.

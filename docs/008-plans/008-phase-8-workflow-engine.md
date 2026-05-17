@@ -6,6 +6,18 @@
 
 ---
 
+## Pre-flight
+
+Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
+
+1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
+3. Verify the previous phase's exit criteria still hold:
+   - `dotnet build AgenticWorkforce.slnx` exits 0
+   - `dotnet test AgenticWorkforce.slnx` exits 0
+
+---
+
 ## Objective
 
 Implement the workflow execution engine: a generic `WorkflowInterpreter` that reads stored workflow definitions (JSON graphs) and walks them node-by-node using Durable Task SDK for durability. Each node type has an executor. Human decision nodes pause via `WaitForExternalEvent`. Tasks are created as first-class entities for every node execution. After this phase, repeatable multi-step processes run autonomously with human checkpoints.

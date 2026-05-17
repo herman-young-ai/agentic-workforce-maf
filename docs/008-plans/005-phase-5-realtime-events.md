@@ -6,6 +6,18 @@
 
 ---
 
+## Pre-flight
+
+Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
+
+1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
+3. Verify the previous phase's exit criteria still hold:
+   - `dotnet build AgenticWorkforce.slnx` exits 0
+   - `dotnet test AgenticWorkforce.slnx` exits 0
+
+---
+
 ## Objective
 
 Implement the real-time event infrastructure: SignalR hub with Redis backplane for persistent channels, plain SSE for ephemeral agent response streams, `IEventPublisher` producing events to Redis pub/sub, and the project console feed. After this phase, clients receive live updates when project state changes.

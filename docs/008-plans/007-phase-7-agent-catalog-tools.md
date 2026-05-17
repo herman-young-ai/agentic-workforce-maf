@@ -6,6 +6,18 @@
 
 ---
 
+## Pre-flight
+
+Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
+
+1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
+3. Verify the previous phase's exit criteria still hold:
+   - `dotnet build AgenticWorkforce.slnx` exits 0
+   - `dotnet test AgenticWorkforce.slnx` exits 0
+
+---
+
 ## Objective
 
 Populate the agent ecosystem: seed YAML definitions for all 16 agents into the database at startup, implement all platform tools (in-process) and sandbox tool stubs, build the 3-tier verification pipeline, and wire up MCP tool resolution. After this phase, the system has a full agent team ready to execute tasks.

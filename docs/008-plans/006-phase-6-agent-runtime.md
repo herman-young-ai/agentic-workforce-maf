@@ -6,6 +6,18 @@
 
 ---
 
+## Pre-flight
+
+Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
+
+1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
+3. Verify the previous phase's exit criteria still hold:
+   - `dotnet build AgenticWorkforce.slnx` exits 0
+   - `dotnet test AgenticWorkforce.slnx` exits 0
+
+---
+
 ## Objective
 
 Implement the core agent execution infrastructure in `AgenticWorkforce.Agents/`. This is the MAF integration layer — it wraps MAF's sealed `ChatClientAgent` behind our stable interfaces, builds agents from database-driven catalog entries, assembles multi-layer prompts, registers tools, enforces budgets, and tracks costs. After this phase, the Worker can execute an agent on a task.

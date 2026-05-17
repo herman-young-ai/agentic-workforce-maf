@@ -6,6 +6,18 @@
 
 ---
 
+## Pre-flight
+
+Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
+
+1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
+3. Verify the previous phase's exit criteria still hold:
+   - `dotnet build AgenticWorkforce.slnx` exits 0
+   - `dotnet test AgenticWorkforce.slnx` exits 0
+
+---
+
 ## Objective
 
 Build comprehensive end-to-end tests that exercise the full platform stack: API → Repository → Database → Agent Runtime → Workflow Engine → Audit Pipeline. These tests prove the system works as a whole before deployment. No mocks — real PostgreSQL (Testcontainers), real Redis, real agent execution (via StubChatClient).

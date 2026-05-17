@@ -6,6 +6,18 @@
 
 ---
 
+## Pre-flight
+
+Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
+
+1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
+3. Verify the previous phase's exit criteria still hold:
+   - `dotnet build AgenticWorkforce.slnx` exits 0
+   - `dotnet test AgenticWorkforce.slnx` exits 0
+
+---
+
 ## Objective
 
 Implement the 3-layer audit pipeline required for dual-regulated banking compliance (FCA/PRA UK, SARB/PA SA). Every LLM call is captured non-blocking, batched, and persisted to both an evidence store (immutable) and an analytics store (queryable). A SHA-256 hash chain ensures tamper detection. After this phase, the platform produces a 7-year compliance trail for every AI decision.
