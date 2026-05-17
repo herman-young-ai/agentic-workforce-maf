@@ -748,6 +748,32 @@ public enum EventSeverity { Debug, Info, Warning, Error }
 public enum AgentVisibility { Public, Private, Internal }
 ```
 
+### 4.1 Wiring CLR enums to native PostgreSQL enums
+
+Storing these as native `CREATE TYPE … AS ENUM (…)` columns (not `integer`) requires
+**four** coordinated registrations in Npgsql.EFCore 10. Skipping any one falls back
+to either integer columns or a runtime `42804: column "…" is of type x but
+expression is of type integer` error. The CLR-to-PG name table is the single
+source of truth at [`PgEnumRegistry.All`](../../src/AgenticWorkforce.Infrastructure/Data/PgEnumRegistry.cs);
+each layer iterates it.
+
+| Layer | Call | Purpose |
+|-------|------|---------|
+| `NpgsqlDataSourceBuilder` | `EnableUnmappedTypes()` | Lets the Npgsql connector serialize/deserialize enum values generically. **Do not** also call `MapEnum<T>` here — registering at both the data-source AND the EF options layer makes the type-mapping source find duplicate matches and throw at model finalization. |
+| `NpgsqlDbContextOptionsBuilder` | `npgsql.MapEnum(clrType, pgEnumName)` for each entry | Registers each enum with EF Core's type-mapping source so properties resolve to `NpgsqlEnumTypeMapping<T>` at parameter time. |
+| `ModelConfigurationBuilder` (in `ConfigureConventions`) | `Properties(clrType).HaveColumnType(pgEnumName)` for each entry | Without this every enum property defaults to a `Column<int>(type: "integer")` in the generated migration. |
+| `ModelBuilder` (in `OnModelCreating`) | `HasPostgresEnum<T>()` for each | Emits the `CREATE TYPE … AS ENUM (…)` DDL in the migration. |
+
+Adding a new enum is two lines: one new entry in `PgEnumRegistry.All` and one
+`HasPostgresEnum<T>()` call in `OnModelCreating`. The other three layers iterate
+the registry automatically.
+
+> The Npgsql docs at `npgsql.org/efcore/mapping/enum.html` describe a simpler
+> two-step setup (data-source `MapEnum<T>` + model `HasPostgresEnum<T>`). That
+> shorter recipe was empirically not sufficient in Npgsql.EFCore 10.0.1 — EF still
+> emitted integer columns and integer parameters. The four-step pattern above is
+> the verified-working setup.
+
 ---
 
 ## 5. DbContext

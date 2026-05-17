@@ -1,21 +1,16 @@
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Infrastructure;
 using AgenticWorkforce.ServiceDefaults;
-using Microsoft.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
 
-// -- Database --
-builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
-    opts.UseNpgsql(
-        builder.Configuration.GetConnectionString("agenticworkforce"),
-        npgsql => npgsql.EnableRetryOnFailure(3))
-        .AddInterceptors(sp.GetRequiredService<AuditInterceptor>()));
+var connectionString = builder.Configuration.GetConnectionString("agenticworkforce")
+    ?? throw new InvalidOperationException("Connection string 'agenticworkforce' is required.");
 
-builder.Services.AddScoped<AuditInterceptor>();
+builder.Services.AddInfrastructure(connectionString);
 
-// -- Durable Task, Agent Runtime, etc. registered here during implementation --
+// Durable Task, Agent Runtime registered in Phase 6+
 
 var host = builder.Build();
 await host.RunAsync();

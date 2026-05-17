@@ -9,6 +9,7 @@ using AgenticWorkforce.Api.Core.Exceptions;
 using AgenticWorkforce.Api.Core.Health;
 using AgenticWorkforce.Api.Core.Middleware;
 using AgenticWorkforce.Api.Core.Observability;
+using AgenticWorkforce.Infrastructure;
 using AgenticWorkforce.Infrastructure.Data;
 using AgenticWorkforce.ServiceDefaults;
 using System.Threading.RateLimiting;
@@ -72,21 +73,14 @@ builder.Services.AddAuthorizationBuilder()
         Roles.Viewer, Roles.Operator, Roles.Reviewer, Roles.Owner, Roles.PlatformAdmin,
         Roles.Agent, Roles.AgentReadOnly));
 
-// -- Database (PostgreSQL + pgvector) --
-builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
-    opts.UseNpgsql(
-        builder.Configuration.GetConnectionString("agenticworkforce"),
-        npgsql =>
-        {
-            npgsql.EnableRetryOnFailure(3);
-            npgsql.UseVector();
-        })
-        .AddInterceptors(sp.GetRequiredService<AuditInterceptor>()));
+// -- Database + Infrastructure (PostgreSQL + pgvector, repositories, services) --
+var connectionString = builder.Configuration.GetConnectionString("agenticworkforce")
+    ?? throw new InvalidOperationException("Connection string 'agenticworkforce' is required.");
+builder.Services.AddInfrastructure(connectionString);
 
 // -- Core services --
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
-builder.Services.AddScoped<AuditInterceptor>();
 
 // -- Health checks --
 builder.Services.AddHealthChecks()

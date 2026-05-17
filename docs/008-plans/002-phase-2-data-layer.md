@@ -625,6 +625,27 @@ src/AgenticWorkforce.Infrastructure/Data/Configurations/ (delete 8 old files, cr
 
 ---
 
+## Phase 1 carry-over: native PG enums actually wired
+
+Phase 1 declared the PG enum *types* via `HasPostgresEnum<T>()` but every enum
+column on every entity still landed as `integer` in the generated migration —
+Npgsql.EFCore 10 no longer auto-maps CLR enum properties to the corresponding
+native enum column type. Phase 2 closed that gap so columns now store the
+native enum (e.g. `status project_status NOT NULL`) and parameters are sent as
+the native enum at insert time.
+
+The working setup needs **four** coordinated registrations; only the data
+source + model-builder pair documented in the Npgsql docs is empirically
+insufficient. Full reference in
+[`003-database-schema.md` §4.1](../002-architecture/003-database-schema.md#41-wiring-clr-enums-to-native-postgresql-enums).
+Single source of truth for the CLR↔PG name map: [`PgEnumRegistry`](../../src/AgenticWorkforce.Infrastructure/Data/PgEnumRegistry.cs).
+
+This is recorded as an implementation note, not an ADR — the architectural
+decision (native PG enums) was already taken; this is just the recipe that
+makes it work with the current library versions.
+
+---
+
 ## Goal Command
 
 ```

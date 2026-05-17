@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <!-- Pgvector: pure POCO Vector type for pgvector columns. No EF Core dependency. -->
-    <PackageReference Include="Pgvector" Version="0.3.0" />
+    <PackageReference Include="Pgvector" />
   </ItemGroup>
 
 </Project>
