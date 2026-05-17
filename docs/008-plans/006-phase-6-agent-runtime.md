@@ -271,6 +271,14 @@ public record FileScopePolicy(
 
 Wraps an `AIFunction` to pause before execution, creating a `HumanInputRequest` and waiting for approval. Used for high-impact tools (e.g., `project.run_objective`, destructive shell commands).
 
+When the human responds, the wrapper inspects `HumanInputRequest.Decision`:
+- `Approved` → invoke the wrapped function, return its result
+- `Rejected` → throw `ApprovalRejectedException` with `request.Response` as the reason; the agent sees this as a tool error and can react
+- `Escalated` → throw `ApprovalEscalatedException`; the agent should typically stop and let the supervisor route to a higher authority
+- `Overridden` → invoke the function but tag the audit record with `decision_overridden=true` (typical when a senior reviewer overrides a policy block)
+
+Use `IWorkflowEngine.SubmitHumanInputAsync` (Phase 8) as the single resolution point so the same enum semantics apply whether the approval comes from a workflow gate or a tool wrapper.
+
 ---
 
 ## 5. IChatClient Middleware

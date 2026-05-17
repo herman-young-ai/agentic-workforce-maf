@@ -410,14 +410,23 @@ public class WorkflowExecutionTests(ApiWebApplicationFactory factory) : IClassFi
             $"/api/v1/projects/{projectId}/human-input/pending");
         pending.Should().HaveCount(1);
 
-        // Respond
+        // Respond (decision is the queryable enum; response is free-text justification)
         var respond = await reviewerClient.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/human-input/{pending![0].Id}/respond",
-            new { Response = "approved", Reason = "Looks good" });
+            new { Decision = "Approved", Response = "Looks good — proceed" });
         respond.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Verify workflow completes
         await WaitForWorkflowCompletion(operatorClient, projectId, timeout: TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public async Task RejectedHumanGate_FailsWorkflow_AndRecordsDecision()
+    {
+        // Same setup as above, but reviewer responds with Decision = "Rejected".
+        // Asserts: HumanInputRequest.Decision == Rejected in DB,
+        //          WorkflowRun.Status == Failed,
+        //          decision is queryable via GET /projects/{id}/human-input?decision=Rejected
     }
 }
 ```

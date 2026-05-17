@@ -423,7 +423,7 @@ public static class EventTypes
 
     // Human input
     public const string HumanInputRequired = "human_input.required";
-    public const string HumanInputProvided = "human_input.provided";
+    public const string HumanInputProvided = "human_input.provided";   // Data includes HumanDecisionType (Approved/Rejected/Escalated/Overridden)
     public const string HumanInputTimedOut = "human_input.timed_out";
 
     // Budget

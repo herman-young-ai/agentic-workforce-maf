@@ -47,11 +47,25 @@ Implement the remaining API endpoints that support workflows, knowledge manageme
 
 ### 4.4 Human Input / Approval Gates (`/api/v1/projects/{projectId}/human-input`)
 
-| File | Method | Path | Auth |
-|------|--------|------|------|
-| `ListPending.cs` | GET | `/pending` | Reviewer+ |
-| `Respond.cs` | POST | `/{requestId}/respond` | Reviewer+ |
-| `GetAudit.cs` | GET | `/{requestId}/audit` | Viewer+ |
+| File | Method | Path | Auth | Body |
+|------|--------|------|------|------|
+| `ListPending.cs` | GET | `/pending` | Reviewer+ | — |
+| `Respond.cs` | POST | `/{requestId}/respond` | Reviewer+ | `{ decision: HumanDecisionType, response?: string }` |
+| `GetAudit.cs` | GET | `/{requestId}/audit` | Viewer+ | — |
+
+**`Respond.cs` contract:**
+
+```csharp
+public record RespondRequest(HumanDecisionType Decision, string? Response);
+
+// Handler delegates to IWorkflowEngine.SubmitHumanInputAsync(
+//   requestId, request.Decision, request.Response, currentUser.Id, ct)
+// which sets HumanInputRequest.Decision (enum, queryable), HumanInputRequest.Response
+// (free-text), HumanInputRequest.Status = Completed, and raises the Durable Task
+// external event to resume the paused workflow orchestration.
+```
+
+Segregation of duties: the responder MUST NOT be the user who triggered the request (`triggered_by != approved_by`). Enforced in handler — returns 403 if violated.
 
 ### 4.5 Project Context — PCD (`/api/v1/projects/{projectId}/context`)
 
