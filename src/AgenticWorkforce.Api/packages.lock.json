@@ -690,7 +690,10 @@
         "contentHash": "wLBKzFnDCxP12VL9ANydSYhk59fC4cvOr9ypYQLPnAj48NQIhqnjdD2yhP8yEKyBJEjERWS9DisKL7rX5eU25Q=="
       },
       "agenticworkforce.domain": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Pgvector": "[0.3.0, )"
+        }
       },
       "agenticworkforce.infrastructure": {
         "type": "Project",

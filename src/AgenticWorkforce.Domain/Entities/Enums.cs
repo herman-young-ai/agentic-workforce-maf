@@ -1,211 +1,36 @@
-namespace AgenticWorkforce.Domain.Entities;
+namespace AgenticWorkforce.Domain.Enums;
 
-// -- Project --
+public enum ProjectStatus { Active, Paused, Completed, Archived }
+public enum ProjectTier { User, Platform }
+public enum ProjectRole { Owner, Operator, Reviewer, Viewer }
+public enum SystemRole { PlatformAdmin, Member }
 
-public enum ProjectStatus
-{
-    Draft,
-    Active,
-    Paused,
-    Completed,
-    Archived,
-    Failed
-}
+public enum ChangeType { Add, Replace, Remove, Prune, Archive }
+public enum IntentSource { UserChat, UserCli, DirectorInferred, System }
+public enum AgentRole { Lead, Specialist, Reviewer, Support }
 
-public enum ProjectPriority
-{
-    Low,
-    Medium,
-    High,
-    Critical
-}
+public enum TaskType { AgentTask, HumanDecision, AiDecision, Action, SubWorkflow }
+public enum TaskStatus { Proposed, Approved, Queued, Running, Completed, Failed, Skipped, Cancelled }
+public enum TaskSource { Workflow, Planner, Manual, AdHoc, Retry, System }
 
-public enum SecurityClassification
-{
-    Internal,
-    Confidential,
-    Restricted
-}
+public enum AttemptStatus { Passed, Failed }
+public enum FailureTier { Tier1Structural, Tier2Quality, Tier3Integration, AgentError, Timeout }
 
-// -- Task --
+public enum LearningKind { FailurePattern, SuccessPattern, AntiPattern, RetryStrategy, CapabilityGap, DomainInsight }
+public enum LearningStatus { Active, Retracted, Superseded }
+public enum DecisionStatus { Active, Superseded, Reversed }
 
-public enum TaskStatus
-{
-    Pending,
-    Queued,
-    Running,
-    WaitingApproval,
-    Approved,
-    Rejected,
-    Completed,
-    Failed,
-    Cancelled,
-    Skipped
-}
+public enum ContentFormat { Markdown, Pptx, Docx, Xlsx, Pdf, Code, Json }
+public enum ArtifactType { ResearchReport, VulnerabilityReport, QualityAudit, ArchitectureReview, Report, Code, Data }
+public enum DocumentType { Reference, Policy, Data, Report, Code, Other }
+public enum ExtractionStatus { Pending, Processing, Completed, Failed }
 
-public enum TaskPriority
-{
-    Low,
-    Medium,
-    High,
-    Critical
-}
+public enum SessionStatus { Active, Suspended, Completed, Expired, Failed }
+public enum MessageRole { User, Assistant, System, ToolCall, ToolResult }
 
-public enum TaskType
-{
-    AgentTask,
-    HumanTask,
-    SystemTask
-}
+public enum WorkflowRunStatus { Pending, Running, AwaitingInput, Completed, Failed, Cancelled }
+public enum HumanInputRequestStatus { Pending, Completed, TimedOut, Cancelled }
+public enum HumanDecisionType { Approved, Rejected, Escalated, Overridden }
 
-// -- Task Attempt --
-
-public enum AttemptStatus
-{
-    Running,
-    Completed,
-    Failed,
-    Cancelled
-}
-
-// -- Session --
-
-public enum SessionType
-{
-    Chat,
-    Execution,
-    Review
-}
-
-// -- Session Message --
-
-public enum MessageRole
-{
-    System,
-    User,
-    Assistant,
-    Tool
-}
-
-// -- Agent --
-
-public enum AgentExecutionMode
-{
-    Sandbox,
-    Platform
-}
-
-// -- Workflow --
-
-public enum WorkflowNodeType
-{
-    Start,
-    End,
-    AgentTask,
-    HumanDecision,
-    AiDecision,
-    Parallel,
-    SubWorkflow,
-    Action
-}
-
-public enum WorkflowExecutionStatus
-{
-    Pending,
-    Running,
-    Paused,
-    Completed,
-    Failed,
-    Cancelled
-}
-
-public enum WorkflowNodeExecutionStatus
-{
-    Pending,
-    Running,
-    WaitingApproval,
-    Completed,
-    Failed,
-    Skipped
-}
-
-// -- Learning --
-
-public enum LearningKind
-{
-    Pcd,
-    Finding,
-    Preference,
-    Procedure,
-    Fact
-}
-
-public enum LearningStatus
-{
-    Pending,
-    Active,
-    Retracted
-}
-
-// -- Decision --
-
-public enum DecisionType
-{
-    Approval,
-    Rejection,
-    Escalation,
-    Override
-}
-
-// -- Artifact --
-
-public enum ArtifactType
-{
-    Report,
-    Document,
-    Code,
-    Data,
-    Image,
-    Other
-}
-
-// -- Project Event --
-
-public enum EventSeverity
-{
-    Info,
-    Warning,
-    Error,
-    Critical
-}
-
-// -- Cost Budget --
-
-public enum BudgetScope
-{
-    Project,
-    Session,
-    Agent,
-    Execution
-}
-
-// -- Platform Role --
-
-public enum PlatformRole
-{
-    Viewer,
-    Operator,
-    Reviewer,
-    Owner,
-    PlatformAdmin
-}
-
-// -- Project Role --
-
-public enum ProjectRole
-{
-    Viewer,
-    Operator,
-    Reviewer,
-    Owner
-}
+public enum EventSeverity { Debug, Info, Warning, Error }
+public enum AgentVisibility { Public, Private, Internal }

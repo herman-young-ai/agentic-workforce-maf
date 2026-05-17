@@ -1,46 +1,58 @@
+using System.ComponentModel.DataAnnotations.Schema;
+using AgenticWorkforce.Domain.Enums;
+
 namespace AgenticWorkforce.Domain.Entities;
 
 public class Project : EntityBase
 {
-    public string Name { get; set; } = string.Empty;
+    public string Name { get; set; } = null!;
+    public string Objective { get; set; } = null!;
     public string? Description { get; set; }
-    public ProjectStatus Status { get; set; } = ProjectStatus.Draft;
-    public ProjectPriority Priority { get; set; } = ProjectPriority.Medium;
-    public SecurityClassification SecurityClassification { get; set; } = SecurityClassification.Internal;
+    public string? Brief { get; set; }
+    public ProjectStatus Status { get; set; }
 
-    public Guid OwnerId { get; set; }
-    public PlatformUser Owner { get; set; } = null!;
+    [Column(TypeName = "numeric(12,6)")]
+    public decimal? BudgetCeilingUsd { get; set; }
 
-    public string TenantId { get; set; } = string.Empty;
+    public string? Jurisdiction { get; set; }
+    public string? TemplateName { get; set; }
+    public ProjectTier Tier { get; set; }
 
-    /// <summary>Project-level settings (jsonb). Stored as opaque JSON.</summary>
-    public string? Settings { get; set; }
-
-    /// <summary>Arbitrary metadata (jsonb).</summary>
-    public string? Metadata { get; set; }
-
-    public DateTime? CompletedAt { get; set; }
-    public DateTime? ArchivedAt { get; set; }
-
-    // Navigation properties
+    // Navigation
+    public ProjectContext? Context { get; set; }
+    public ICollection<ContextMilestone> Milestones { get; set; } = [];
+    public ICollection<ProjectIntent> Intents { get; set; } = [];
+    public ICollection<ProjectAgent> Agents { get; set; } = [];
     public ICollection<ProjectMember> Members { get; set; } = [];
     public ICollection<AgenticTask> Tasks { get; set; } = [];
-    public ICollection<Session> Sessions { get; set; } = [];
-    public ICollection<ProjectAgent> Agents { get; set; } = [];
-    public ICollection<ProjectDocument> Documents { get; set; } = [];
     public ICollection<ProjectLearning> Learnings { get; set; } = [];
+    public ICollection<ProjectDecision> Decisions { get; set; } = [];
+    public ICollection<MilestoneSummary> MilestoneSummaries { get; set; } = [];
+    public ICollection<ProjectArtifact> Artifacts { get; set; } = [];
+    public ICollection<ProjectDocument> Documents { get; set; } = [];
+    public ICollection<Session> Sessions { get; set; } = [];
     public ICollection<ProjectEvent> Events { get; set; } = [];
-    public ICollection<WorkflowDefinition> Workflows { get; set; } = [];
-    public ICollection<CostBudget> Budgets { get; set; } = [];
+    public ICollection<WorkflowDefinition> WorkflowDefinitions { get; set; } = [];
+    public ICollection<WorkflowRun> WorkflowRuns { get; set; } = [];
+    public ICollection<LlmCall> LlmCalls { get; set; } = [];
 }
 
-public class ProjectMember : EntityBase
+public class ProjectMember : ProjectScopedEntity
 {
-    public Guid ProjectId { get; set; }
-    public Project Project { get; set; } = null!;
-
     public Guid UserId { get; set; }
-    public PlatformUser User { get; set; } = null!;
+    public User User { get; set; } = null!;
+    public ProjectRole Role { get; set; }
+}
 
-    public ProjectRole Role { get; set; } = ProjectRole.Viewer;
+public class ProjectAgent : ProjectScopedEntity
+{
+    public Guid AgentCatalogId { get; set; }
+    public AgentCatalog AgentCatalog { get; set; } = null!;
+    public AgentRole Role { get; set; }
+    public string? UserPrompt { get; set; }
+    public bool Enabled { get; set; } = true;
+    public int DisplayOrder { get; set; }
+
+    [Column(TypeName = "jsonb")]
+    public string? CustomConstraints { get; set; }
 }

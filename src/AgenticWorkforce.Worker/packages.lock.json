@@ -511,7 +511,10 @@
         }
       },
       "agenticworkforce.domain": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Pgvector": "[0.3.0, )"
+        }
       },
       "agenticworkforce.infrastructure": {
         "type": "Project",

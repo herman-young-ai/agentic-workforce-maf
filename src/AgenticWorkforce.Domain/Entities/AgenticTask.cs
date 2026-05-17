@@ -1,71 +1,78 @@
+using System.ComponentModel.DataAnnotations.Schema;
+using AgenticWorkforce.Domain.Enums;
+
 namespace AgenticWorkforce.Domain.Entities;
 
 public class AgenticTask : ProjectScopedEntity
 {
-    public string Title { get; set; } = string.Empty;
-    public string? Description { get; set; }
-    public TaskStatus Status { get; set; } = TaskStatus.Pending;
-    public TaskPriority Priority { get; set; } = TaskPriority.Medium;
-    public TaskType Type { get; set; } = TaskType.AgentTask;
-
-    public Guid? AssignedAgentId { get; set; }
-    public AgentCatalog? AssignedAgent { get; set; }
-
-    public Guid? WorkflowNodeId { get; set; }
-
-    /// <summary>Self-referencing parent for task decomposition.</summary>
+    public TaskType Type { get; set; }
+    public TaskStatus Status { get; set; }
+    public string Objective { get; set; } = null!;
+    public string? AgentName { get; set; }
+    public TaskSource Source { get; set; }
+    public string? WorkflowNodeId { get; set; }
     public Guid? ParentTaskId { get; set; }
     public AgenticTask? ParentTask { get; set; }
+    public Guid? WorkflowRunId { get; set; }
+    public WorkflowRun? WorkflowRun { get; set; }
 
-    /// <summary>Task input payload (jsonb).</summary>
-    public string? Input { get; set; }
+    [Column(TypeName = "jsonb")]
+    public string? Inputs { get; set; }
 
-    /// <summary>Task output payload (jsonb).</summary>
-    public string? Output { get; set; }
+    [Column(TypeName = "jsonb")]
+    public string? Outputs { get; set; }
 
-    public bool RequiresApproval { get; set; }
-    public Guid? ApprovedBy { get; set; }
-    public DateTime? ApprovedAt { get; set; }
+    public string? OutputSummary { get; set; }
+
+    [Column(TypeName = "numeric(12,6)")]
+    public decimal CostUsd { get; set; }
 
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public double? DurationSeconds { get; set; }
+    public int RetryCount { get; set; }
+    public int MaxRetries { get; set; } = 3;
 
-    // Navigation properties
-    public ICollection<AgenticTask> SubTasks { get; set; } = [];
+    public Guid? AssignedToId { get; set; }
+    public User? AssignedTo { get; set; }
+    public Guid? SessionId { get; set; }
+    public Session? Session { get; set; }
+    public Guid? CreatedById { get; set; }
+    public User? CreatedBy { get; set; }
+    public string FormatVersion { get; set; } = "1.0";
+
+    // Navigation
+    public ICollection<AgenticTask> ChildTasks { get; set; } = [];
     public ICollection<TaskAttempt> Attempts { get; set; } = [];
     public ICollection<TaskDependency> Dependencies { get; set; } = [];
     public ICollection<TaskDependency> Dependents { get; set; } = [];
-    public ICollection<Decision> Decisions { get; set; } = [];
-    public ICollection<Artifact> Artifacts { get; set; } = [];
+    public ICollection<ProjectArtifact> Artifacts { get; set; } = [];
+    public ICollection<ProjectEvent> Events { get; set; } = [];
+    public ICollection<ProjectLearning> Learnings { get; set; } = [];
+    public ICollection<ProjectDecision> Decisions { get; set; } = [];
+    public ICollection<HumanInputRequest> HumanInputRequests { get; set; } = [];
 }
 
 public class TaskAttempt : TaskScopedEntity
 {
     public int AttemptNumber { get; set; }
-    public AttemptStatus Status { get; set; } = AttemptStatus.Running;
-
-    /// <summary>Attempt input snapshot (jsonb).</summary>
-    public string? Input { get; set; }
-
-    /// <summary>Attempt output (jsonb).</summary>
-    public string? Output { get; set; }
-
-    public string? Error { get; set; }
-    public int TokensUsed { get; set; }
-    public decimal CostUsd { get; set; }
-
+    public AttemptStatus Status { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public FailureTier? FailureTier { get; set; }
+    public string? FailureReason { get; set; }
+    public string? FeedbackProvided { get; set; }
+    public long InputTokens { get; set; }
+    public long OutputTokens { get; set; }
+
+    [Column(TypeName = "numeric(12,6)")]
+    public decimal CostUsd { get; set; }
 }
 
-/// <summary>
-/// Directed dependency between tasks. TaskId depends on DependsOnTaskId.
-/// </summary>
 public class TaskDependency
 {
     public Guid TaskId { get; set; }
     public AgenticTask Task { get; set; } = null!;
-
     public Guid DependsOnTaskId { get; set; }
     public AgenticTask DependsOnTask { get; set; } = null!;
 }
