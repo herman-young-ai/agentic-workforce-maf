@@ -97,7 +97,15 @@ print('\n'.join(lines))
 PY
 
 echo "$CQI_JSON" > .codemap/quality.json
-git add .codemap/quality.md .codemap/quality.json
+
+# -- 4b. Regenerate codemap (.codemap/map.md) so subsequent phases have a
+#         fresh type/method inventory to consult before making changes.
+echo "  -> codemap"
+if ! ./scripts/codemap.sh >/dev/null 2>&1; then
+  echo "  [WARN] codemap regeneration failed — map.md may be stale"
+fi
+
+git add .codemap/quality.md .codemap/quality.json .codemap/map.md
 
 # -- 5. Gate --
 if [ "$CQI" -lt "$CQI_MIN" ]; then
