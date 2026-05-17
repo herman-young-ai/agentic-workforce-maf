@@ -100,9 +100,16 @@ echo "$CQI_JSON" > .codemap/quality.json
 
 # -- 4b. Regenerate codemap (.codemap/map.md) so subsequent phases have a
 #         fresh type/method inventory to consult before making changes.
+#         Failure is FATAL — a stale codemap is the exact contract we hand
+#         to the next phase agent, and silent staleness causes duplicated
+#         work and stale-data bugs. Fix the codemap tool before retrying.
 echo "  -> codemap"
-if ! ./scripts/codemap.sh >/dev/null 2>&1; then
-  echo "  [WARN] codemap regeneration failed — map.md may be stale"
+if ! CODEMAP_OUT=$(./scripts/codemap.sh 2>&1); then
+  echo "  x Codemap regeneration failed. Commit aborted."
+  echo "    The hook will not silently publish a stale .codemap/map.md."
+  echo "    Output:"
+  echo "$CODEMAP_OUT" | sed 's/^/    /'
+  exit 1
 fi
 
 git add .codemap/quality.md .codemap/quality.json .codemap/map.md

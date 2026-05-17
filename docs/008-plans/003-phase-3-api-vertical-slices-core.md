@@ -97,6 +97,54 @@ app.UseSwaggerUI(opts => opts.SwaggerEndpoint("/openapi/v1.json", "v1")); // kee
 
 Remove `Swashbuckle.AspNetCore` from packages. Add `Microsoft.AspNetCore.OpenApi` (included in .NET 10 SDK — no extra package needed). Keep `Swashbuckle.AspNetCore.SwaggerUI` for the UI only if desired, or use Scalar.
 
+### Carry-over from Phase 2: Repository scope is aggregate roots only
+
+Phase 2's handoff established this rule and the codebase follows it:
+
+> **Repositories: ProjectRepository, TaskRepository, SessionRepository, WorkflowRepository. Aggregate roots only — vertical-slice handlers hit `AppDbContext` directly for non-aggregate reads.**
+
+What this means for Phase 3 handlers:
+
+| Endpoint group | Use | Rationale |
+|----------------|-----|-----------|
+| Projects (CRUD/lifecycle) | `IProjectRepository` | Project is the aggregate root |
+| Tasks (lifecycle: approve/reject/retry/cancel, single get, create, single update) | `ITaskRepository` | AgenticTask is an aggregate root |
+| Sessions (single get, create, suspend/resume/complete) | `ISessionRepository` | Session is an aggregate root |
+| `ListTasks` with filters by `status, type, source, agent_name, parent_task_id` | `AppDbContext` directly | `ITaskRepository.GetByProjectIdAsync` only filters by `status`. Don't extend the interface — query `AppDbContext.Tasks` with LINQ in the handler |
+| `GetBoard`, `BulkApproveTask` | `AppDbContext` directly | Specialised read/write patterns; not worth a repo method |
+| `ListSessions`, `ListMessages` | `AppDbContext` directly | `ISessionRepository` deliberately has no list methods |
+| Members (`ListMembers`, `AddMember`, `UpdateMember`, `RemoveMember`, `TransferOwnership`) | `AppDbContext` directly on `DbSet<ProjectMember>` | `ProjectMember` is a child of `Project`, not an aggregate root. No `IMemberRepository` exists or should be added |
+| Team (`ListTeam`, `AddAgent`, `RemoveAgent`, `UpdateAgentPrompt`, `SeedTeam`) | `AppDbContext` directly on `DbSet<ProjectAgent>` + `DbSet<PromptVersion>` | Same reasoning — `ProjectAgent` and `PromptVersion` are not aggregate roots |
+| Auth (`GetMe`, `UpdateMe`, API key CRUD) | `AppDbContext` directly on `DbSet<User>` + `DbSet<ApiKey>` | `User` and `ApiKey` reads/writes are simple and have no domain logic beyond the entity |
+
+**Do not create new repository interfaces in this phase.** If you find yourself wanting one for `ProjectMember`/`ProjectAgent`/`User`/`ApiKey`/`PromptVersion`, the answer is to inject `AppDbContext` into the handler and write the LINQ inline.
+
+The four existing repository interfaces and their exact methods (from Phase 2):
+
+```csharp
+public interface IProjectRepository {
+  Task<Project?> GetByIdAsync(Guid id, CancellationToken ct = default);
+  Task<IReadOnlyList<Project>> ListByMemberAsync(Guid userId, CancellationToken ct = default);
+  Task<Project> CreateAsync(Project project, CancellationToken ct = default);
+  Task<Project> UpdateAsync(Project project, CancellationToken ct = default);
+  Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
+}
+
+public interface ITaskRepository {
+  Task<AgenticTask?> GetByIdAsync(Guid id, CancellationToken ct = default);
+  Task<IReadOnlyList<AgenticTask>> GetByProjectIdAsync(Guid projectId, TaskStatus? status = null, CancellationToken ct = default);
+  Task<AgenticTask> CreateAsync(AgenticTask task, CancellationToken ct = default);
+  Task<AgenticTask> UpdateAsync(AgenticTask task, CancellationToken ct = default);
+  Task<IReadOnlyList<AgenticTask>> GetBoardAsync(Guid projectId, CancellationToken ct = default);
+}
+
+public interface ISessionRepository {
+  Task<Session?> GetByIdAsync(Guid id, CancellationToken ct = default);
+  Task<Session> CreateAsync(Session session, CancellationToken ct = default);
+  Task<Session> UpdateAsync(Session session, CancellationToken ct = default);
+}
+```
+
 ### Cross-Cutting: Project-Scoped Authorization
 
 Most endpoints are project-scoped. We need a lightweight authorization check that verifies the current user has the required role ON THAT PROJECT (BOLA prevention):
@@ -124,10 +172,10 @@ public interface IProjectAuthorizationService
 | `GetProject.cs` | GET | `/{projectId}` | Viewer+ | Includes summary stats |
 | `ListProjects.cs` | GET | `/` | Member | Filtered by membership |
 | `UpdateProject.cs` | PATCH | `/{projectId}` | Owner | Partial update |
-| `DeleteProject.cs` | DELETE | `/{projectId}` | Owner | Soft-delete (IsActive=false) |
+| `DeleteProject.cs` | DELETE | `/{projectId}` | Owner | Soft-delete via `Status = Archived`. There is no `IsActive` field — `Status` is the only lifecycle column. Same effect as `ArchiveProject`; this is the REST verb form |
 | `PauseProject.cs` | POST | `/{projectId}/pause` | Owner | Status → Paused |
 | `ResumeProject.cs` | POST | `/{projectId}/resume` | Owner | Status → Active |
-| `ArchiveProject.cs` | POST | `/{projectId}/archive` | Owner | Status → Archived |
+| `ArchiveProject.cs` | POST | `/{projectId}/archive` | Owner | Status → Archived. Same effect as `DELETE`; this is the explicit-action form |
 
 ### 3.2 Tasks (`/api/v1/projects/{projectId}/tasks`)
 
