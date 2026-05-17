@@ -89,7 +89,8 @@ Align the domain entities, enums, and interfaces in `src/AgenticWorkforce.Domain
 | `ExtractionStatus` | `Pending, Processing, Completed, Failed` |
 | `DocumentType` | `Policy, Standard, Reference, Report, Data, Other` |
 | `DecisionStatus` | `Active, Superseded, Retracted` |
-| `HumanInputRequestStatus` | `Pending, Responded, TimedOut, Cancelled` |
+| `HumanInputRequestStatus` | `Pending, Completed, TimedOut, Cancelled` (matches spec — lifecycle only) |
+| `HumanDecisionType` | `Approved, Rejected, Escalated, Overridden` (new — what action the responder took, set when Status = Completed) |
 | `WorkflowRunStatus` | `Pending, Running, Paused, Completed, Failed, Cancelled` |
 | `AgentVisibility` | `Public, Internal, Hidden` |
 
@@ -162,13 +163,34 @@ The spec uses `User`. AGENTS.md uses "PlatformUser" in examples. The database ta
 
 The current scaffold has `WorkflowNode` and `WorkflowEdge` as separate entities with their own tables. The spec stores them as JSON arrays on `WorkflowDefinition`.
 
-**Decision:** Follow the spec. JSON storage is correct — the React Flow editor serialises the entire graph, and workflow definitions are loaded atomically. Separate tables would cause N+1 problems and break atomic versioning.
+**Decision:** Follow the spec. JSON storage is correct — the React Flow editor serialises the entire graph, and workflow definitions are loaded atomically. Separate tables would cause N+1 problems and break atomic versioning. See [ADR-018](../002-architecture/ADR-018-workflow-graph-storage.md) for the full rationale, JSONB query patterns, and rejected alternatives.
 
 ### `CostBudget` entity removal
 
 The spec does not have a standalone `CostBudget` entity. Budget ceiling is a field on `Project` and `Session`. Budget enforcement is middleware behaviour, not a DB entity.
 
 **Decision:** Remove `CostBudget`. Add `BudgetCeilingUsd` to `Project` and `CostBudgetUsd` to `Session`.
+
+### `HumanInputRequest.Decision` (queryable approval type)
+
+The spec's `HumanInputRequest.Status` only captures lifecycle (`Pending, Completed, TimedOut, Cancelled`). It does not record **what action** the responder took (approve / reject / escalate / override). Without that, analytics queries like "show all escalations this quarter" require parsing free-text `Response`.
+
+**Decision:** Add a nullable `Decision` column of type `HumanDecisionType` (enum: `Approved, Rejected, Escalated, Overridden`). Set when `Status = Completed`. `Response` remains free-text for justification or the chosen value. Add an index on `(ProjectId, Decision)` for analytics.
+
+```csharp
+public class HumanInputRequest : ProjectScopedEntity
+{
+    // ... existing fields ...
+    public HumanInputRequestStatus Status { get; set; }
+    public HumanDecisionType? Decision { get; set; }   // null until Status = Completed
+    public string? Response { get; set; }              // free-text justification or value
+    // ...
+}
+
+public enum HumanDecisionType { Approved, Rejected, Escalated, Overridden }
+```
+
+Architecture spec ([003-database-schema.md](../002-architecture/003-database-schema.md)) updated to match.
 
 ---
 

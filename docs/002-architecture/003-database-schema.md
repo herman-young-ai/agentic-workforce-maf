@@ -552,7 +552,8 @@ public class HumanInputRequest : ProjectScopedEntity
     [Column(TypeName = "jsonb")]
     public string? Choices { get; set; }
     public HumanInputRequestStatus Status { get; set; }
-    public string? Response { get; set; }
+    public HumanDecisionType? Decision { get; set; }   // set when Status = Completed
+    public string? Response { get; set; }              // free-text payload (justification, the choice, etc.)
     public Guid? ResponderId { get; set; }
     public User? Responder { get; set; }
     public DateTimeOffset? TimeoutAt { get; set; }
@@ -742,6 +743,7 @@ public enum MessageRole { User, Assistant, System, ToolCall, ToolResult }
 
 public enum WorkflowRunStatus { Pending, Running, AwaitingInput, Completed, Failed, Cancelled }
 public enum HumanInputRequestStatus { Pending, Completed, TimedOut, Cancelled }
+public enum HumanDecisionType { Approved, Rejected, Escalated, Overridden }
 public enum EventSeverity { Debug, Info, Warning, Error }
 public enum AgentVisibility { Public, Private, Internal }
 ```
@@ -833,6 +835,7 @@ public class AgenticWorkforceDbContext(DbContextOptions<AgenticWorkforceDbContex
         modelBuilder.HasPostgresEnum<MessageRole>();
         modelBuilder.HasPostgresEnum<WorkflowRunStatus>();
         modelBuilder.HasPostgresEnum<HumanInputRequestStatus>();
+        modelBuilder.HasPostgresEnum<HumanDecisionType>();
         modelBuilder.HasPostgresEnum<EventSeverity>();
         modelBuilder.HasPostgresEnum<AgentVisibility>();
 
@@ -1200,6 +1203,7 @@ public class AgenticWorkforceDbContext(DbContextOptions<AgenticWorkforceDbContex
                 .HasForeignKey(h => h.ResponderId)
                 .OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(h => new { h.ProjectId, h.Status });
+            e.HasIndex(h => new { h.ProjectId, h.Decision });   // analytics: count escalations etc.
             e.HasIndex(h => h.WorkflowRunId);
             e.HasIndex(h => h.TaskId);
         });
@@ -1301,6 +1305,7 @@ dataSourceBuilder.MapEnum<SessionStatus>();
 dataSourceBuilder.MapEnum<MessageRole>();
 dataSourceBuilder.MapEnum<WorkflowRunStatus>();
 dataSourceBuilder.MapEnum<HumanInputRequestStatus>();
+dataSourceBuilder.MapEnum<HumanDecisionType>();
 dataSourceBuilder.MapEnum<EventSeverity>();
 dataSourceBuilder.MapEnum<AgentVisibility>();
 var dataSource = dataSourceBuilder.Build();

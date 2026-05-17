@@ -133,7 +133,7 @@
 | Method | Path | Purpose | Auth | Notes |
 |--------|------|---------|------|-------|
 | `GET` | `/pending` | List pending human input requests | Reviewer+ | |
-| `POST` | `/{requestId}/respond` | Approve/reject/escalate with reason | Reviewer+ | Segregation: triggered_by != approved_by |
+| `POST` | `/{requestId}/respond` | Submit decision with reason | Reviewer+ | Body: `{ decision: "Approved"\|"Rejected"\|"Escalated"\|"Overridden", response?: string }`. Segregation: triggered_by != approved_by |
 | `GET` | `/{requestId}/audit` | Approval audit trail for a request | Viewer+ | |
 
 ### 1.12 Project Context — PCD (`/api/v1/projects/{projectId}/context`)

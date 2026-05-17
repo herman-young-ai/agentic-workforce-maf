@@ -534,12 +534,14 @@ internal sealed class WorkflowEngine(
     }
 
     public async Task SubmitHumanInputAsync(
-        Guid requestId, string response, Guid responderId, CancellationToken ct = default)
+        Guid requestId, HumanDecisionType decision, string? response,
+        Guid responderId, CancellationToken ct = default)
     {
         var request = await workflowRepo.GetHumanInputRequestAsync(requestId, ct)
             ?? throw new NotFoundException("HumanInputRequest", requestId);
 
-        request.Response = response;
+        request.Decision = decision;             // queryable enum (Approved/Rejected/Escalated/Overridden)
+        request.Response = response;             // free-text justification or chosen value
         request.ResponderId = responderId;
         request.ResolvedAt = DateTime.UtcNow;
         request.Status = HumanInputRequestStatus.Completed;
@@ -549,7 +551,7 @@ internal sealed class WorkflowEngine(
         await client.RaiseEventAsync(
             request.WorkflowRunId.ToString(),
             $"human_decision:{request.TaskId}",
-            new HumanDecisionResponse(response, response), ct);
+            new HumanDecisionResponse(decision, response), ct);
     }
 }
 ```
