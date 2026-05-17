@@ -76,6 +76,7 @@ var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
 dataSourceBuilder.UseVector();
 dataSourceBuilder.MapEnum<ProjectStatus>();
 dataSourceBuilder.MapEnum<ProjectTier>();
+// ... all enums including HumanInputRequestStatus, HumanDecisionType (see DataSourceFactory below)
 // ... all enums ...
 var dataSource = dataSourceBuilder.Build();
 
@@ -122,6 +123,7 @@ public static class DataSourceFactory
         builder.MapEnum<MessageRole>();
         builder.MapEnum<WorkflowRunStatus>();
         builder.MapEnum<HumanInputRequestStatus>();
+        builder.MapEnum<HumanDecisionType>();      // ← carry-over from Phase 1 ADR-018 fix
         builder.MapEnum<EventSeverity>();
         builder.MapEnum<AgentVisibility>();
         return builder.Build();
@@ -130,6 +132,8 @@ public static class DataSourceFactory
 ```
 
 Both Api and Worker call `DataSourceFactory.Create(connectionString)` then pass the result to `UseNpgsql()`.
+
+> **Carry-over from Phase 1:** `HumanDecisionType` was added to `Enums.cs` and registered in `AppDbContext.HasPostgresEnum<>()` during Phase 1, but the `NpgsqlDataSourceBuilder.MapEnum<>()` registration was deferred because no `NpgsqlDataSourceBuilder` existed yet (the scaffold only called `npgsql.UseVector()` on `DbContextOptions`). This phase introduces the `DataSourceFactory` — make sure `MapEnum<HumanDecisionType>()` is in the list alongside the other enum mappings. Without it, Npgsql will fail at runtime the first time a `HumanInputRequest` row with a non-null `Decision` is read or written.
 
 ---
 
