@@ -2,6 +2,7 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Services;
 using AgenticWorkforce.Infrastructure.Data;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
@@ -32,8 +33,7 @@ public static class CancelTask
         if (task.ProjectId != projectId)
             throw new NotFoundException("Task", taskId);
 
-        var cancellable = new[] { TaskStatus.Proposed, TaskStatus.Approved, TaskStatus.Queued, TaskStatus.Running };
-        if (!cancellable.Contains(task.Status))
+        if (!TaskStateValidator.CanTransition(task.Status, TaskStatus.Cancelled))
             throw new InvalidStateException($"Tasks in status {task.Status} cannot be cancelled.");
 
         task.Status = TaskStatus.Cancelled;

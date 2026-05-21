@@ -48,7 +48,11 @@ public static class SeedTeam
         if (toAdd.Count == 0)
             return Results.Ok(new Response(0, []));
 
-        var displayOrder = existingAgentCatalogIds.Count;
+        var maxDisplayOrder = await db.ProjectAgents
+            .Where(a => a.ProjectId == projectId)
+            .Select(a => (int?)a.DisplayOrder)
+            .MaxAsync(ct) ?? 0;
+
         var added = new List<AgentAdded>();
 
         foreach (var catalog in toAdd)
@@ -59,7 +63,7 @@ public static class SeedTeam
                 AgentCatalogId = catalog.Id,
                 Role           = AgentRole.Specialist,
                 Enabled        = true,
-                DisplayOrder   = ++displayOrder
+                DisplayOrder   = ++maxDisplayOrder
             };
             db.ProjectAgents.Add(agent);
             added.Add(new AgentAdded(agent.Id, catalog.AgentName, agent.Role));

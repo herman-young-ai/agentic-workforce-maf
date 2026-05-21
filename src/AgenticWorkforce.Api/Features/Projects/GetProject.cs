@@ -47,6 +47,10 @@ public static class GetProject
         var project = await repo.GetByIdAsync(projectId, ct)
             ?? throw new NotFoundException("Project", projectId);
 
+        var totalTaskCount = await db.Tasks
+            .AsNoTracking()
+            .CountAsync(t => t.ProjectId == projectId, ct);
+
         var activeTaskCount = await db.Tasks
             .AsNoTracking()
             .CountAsync(t => t.ProjectId == projectId &&
@@ -59,7 +63,7 @@ public static class GetProject
         return Results.Ok(new Response(
             project.Id, project.Name, project.Objective, project.Description,
             project.Status, project.Tier, project.BudgetCeilingUsd, project.Jurisdiction,
-            members.Count, project.Tasks.Count, activeTaskCount,
+            members.Count, totalTaskCount, activeTaskCount,
             members, project.CreatedAt, project.UpdatedAt));
     }
 }
