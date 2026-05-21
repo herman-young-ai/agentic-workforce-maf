@@ -10,6 +10,11 @@ namespace AgenticWorkforce.Api.Features.Team;
 
 public static class UpdateAgentPrompt
 {
+    // Discriminators for the polymorphic PromptVersions table. Must match what
+    // any reader (audit, rollback) uses — keep WRITE and READ paths in lockstep.
+    private const string EntityTypeProjectAgent = "ProjectAgent";
+    private const string PromptTypeUserPrompt   = "user_prompt";
+
     public record Request(string UserPrompt, string? ChangeReason = null);
 
     public static void MapEndpoints(IEndpointRouteBuilder app) =>
@@ -39,15 +44,15 @@ public static class UpdateAgentPrompt
 
         var latestVersion = await db.PromptVersions
             .AsNoTracking()
-            .Where(p => p.EntityType == "ProjectAgent" && p.EntityId == memberId)
+            .Where(p => p.EntityType == EntityTypeProjectAgent && p.EntityId == memberId)
             .Select(p => (int?)p.Version)
             .MaxAsync(ct) ?? 0;
 
         db.PromptVersions.Add(new PromptVersion
         {
-            EntityType    = "ProjectAgent",
+            EntityType    = EntityTypeProjectAgent,
             EntityId      = memberId,
-            PromptType    = "user_prompt",
+            PromptType    = PromptTypeUserPrompt,
             Content       = request.UserPrompt,
             Version       = latestVersion + 1,
             ChangedBy     = user.Email,
