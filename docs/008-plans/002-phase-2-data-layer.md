@@ -218,18 +218,22 @@ CREATE TABLE llm_calls (
 
 ## 5. Repository Implementations
 
-Repositories exist for **aggregate roots only** — entities that are the entry point for a bounded context. Child entities and lookup tables are accessed via `AppDbContext` directly in vertical-slice handlers. This avoids over-abstraction while maintaining testability for core operations.
+Repositories exist for **aggregate roots only**, and they expose **query methods only** — entry points where there's real shape worth abstracting (Includes, paged filters, board projections). Writes go through `AppDbContext` directly from vertical-slice handlers. The CRUD pattern `db.Set.Add(e); await db.SaveChangesAsync(ct); return e` is not interesting enough to wrap behind an interface, and wrapping it fragments the unit of work across N repositories.
 
-### Aggregate root repositories:
+### Aggregate root repositories (query-only):
 
-| Repository | Aggregate Root | Child Access |
-|------------|---------------|--------------|
-| `IProjectRepository` | Project | Members, Agents accessed through Project includes |
-| `ITaskRepository` | AgenticTask | Attempts, Dependencies accessed through Task includes |
-| `ISessionRepository` | Session | Messages, Channels accessed through Session includes |
-| `IWorkflowRepository` | WorkflowDefinition, WorkflowRun | Schedules, HumanInputRequests accessed through includes |
+| Repository | Aggregate Root | Methods |
+|------------|---------------|---------|
+| `IProjectRepository` | Project | `GetByIdAsync` (Members/Agents Include), `ListByMemberAsync`, `ExistsByNameAsync` |
+| `ITaskRepository` | AgenticTask | `GetByIdAsync` (Attempts/Dependencies Include), `GetByProjectIdAsync`, `GetBoardAsync` |
+| `ISessionRepository` | Session | `GetByIdAsync` (Messages/Channels Include) |
+| `IWorkflowRepository` | WorkflowDefinition, WorkflowRun | `GetDefinitionByIdAsync` (Schedules Include), `GetRunByIdAsync` (Tasks/HumanInputRequests Include) |
 
 Non-aggregate queries (learnings, decisions, artifacts, events, documents, costs) are handled directly by vertical-slice endpoints using `AppDbContext`. No repository wrapping for simple reads.
+
+### Tracking semantics
+
+List methods (`ListByMemberAsync`, `GetByProjectIdAsync`, `GetBoardAsync`) call `.AsNoTracking()` — they serve read-only response shapes. `GetByIdAsync` stays tracked so handlers can mutate the returned entity and call `db.SaveChangesAsync(ct)` directly.
 
 ### Files to CREATE:
 
@@ -246,34 +250,21 @@ src/AgenticWorkforce.Infrastructure/DependencyInjection.cs
 ```csharp
 internal sealed class ProjectRepository(AppDbContext db) : IProjectRepository
 {
-    public async Task<Project?> GetByIdAsync(Guid id, CancellationToken ct = default)
-        => await db.Projects
+    public Task<Project?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => db.Projects
             .Include(p => p.Members)
             .Include(p => p.Agents)
             .FirstOrDefaultAsync(p => p.Id == id, ct);
 
     public async Task<IReadOnlyList<Project>> ListByMemberAsync(Guid userId, CancellationToken ct = default)
         => await db.Projects
+            .AsNoTracking()
             .Where(p => p.Members.Any(m => m.UserId == userId))
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync(ct);
 
-    public async Task<Project> CreateAsync(Project project, CancellationToken ct = default)
-    {
-        db.Projects.Add(project);
-        await db.SaveChangesAsync(ct);
-        return project;
-    }
-
-    public async Task<Project> UpdateAsync(Project project, CancellationToken ct = default)
-    {
-        db.Projects.Update(project);
-        await db.SaveChangesAsync(ct);
-        return project;
-    }
-
-    public async Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default)
-        => await db.Projects.AnyAsync(p => p.Name == name, ct);
+    public Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default)
+        => db.Projects.AnyAsync(p => p.Name == name, ct);
 }
 ```
 
@@ -282,8 +273,8 @@ internal sealed class ProjectRepository(AppDbContext db) : IProjectRepository
 ```csharp
 internal sealed class TaskRepository(AppDbContext db) : ITaskRepository
 {
-    public async Task<AgenticTask?> GetByIdAsync(Guid id, CancellationToken ct = default)
-        => await db.Tasks
+    public Task<AgenticTask?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => db.Tasks
             .Include(t => t.Attempts)
             .Include(t => t.Dependencies)
             .FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -291,28 +282,17 @@ internal sealed class TaskRepository(AppDbContext db) : ITaskRepository
     public async Task<IReadOnlyList<AgenticTask>> GetByProjectIdAsync(
         Guid projectId, TaskStatus? status = null, CancellationToken ct = default)
     {
-        var query = db.Tasks.Where(t => t.ProjectId == projectId);
+        var query = db.Tasks
+            .AsNoTracking()
+            .Where(t => t.ProjectId == projectId);
         if (status.HasValue)
             query = query.Where(t => t.Status == status.Value);
         return await query.OrderBy(t => t.CreatedAt).ToListAsync(ct);
     }
 
-    public async Task<AgenticTask> CreateAsync(AgenticTask task, CancellationToken ct = default)
-    {
-        db.Tasks.Add(task);
-        await db.SaveChangesAsync(ct);
-        return task;
-    }
-
-    public async Task<AgenticTask> UpdateAsync(AgenticTask task, CancellationToken ct = default)
-    {
-        db.Tasks.Update(task);
-        await db.SaveChangesAsync(ct);
-        return task;
-    }
-
     public async Task<IReadOnlyList<AgenticTask>> GetBoardAsync(Guid projectId, CancellationToken ct = default)
         => await db.Tasks
+            .AsNoTracking()
             .Where(t => t.ProjectId == projectId)
             .Include(t => t.Dependencies)
             .Include(t => t.Dependents)
@@ -321,35 +301,62 @@ internal sealed class TaskRepository(AppDbContext db) : ITaskRepository
 }
 ```
 
+### Handler write pattern (no repository indirection)
+
+Vertical-slice handlers issue writes against `AppDbContext` directly:
+
+```csharp
+// Create
+db.Projects.Add(project);
+await db.SaveChangesAsync(ct);
+
+// Update (entity already tracked from GetByIdAsync)
+project.Status = ProjectStatus.Paused;
+await db.SaveChangesAsync(ct);
+```
+
+`db.Set.Update(entity)` is deliberately not used — for an entity loaded via `GetByIdAsync` it marks every column Modified and fights the change tracker; `SaveChangesAsync` alone is what handlers want.
+
 ### DependencyInjection.cs (Infrastructure)
 
 ```csharp
 public static class InfrastructureServiceExtensions
 {
+    /// <summary>
+    /// Configuration keys: ConnectionStrings:agenticworkforce (required),
+    /// DocumentStore:BasePath (optional).
+    /// </summary>
     public static IServiceCollection AddInfrastructure(
-        this IServiceCollection services, string connectionString)
+        this IServiceCollection services, IConfiguration configuration)
     {
+        var connectionString = configuration.GetConnectionString("agenticworkforce")
+            ?? throw new InvalidOperationException("Connection string 'agenticworkforce' is required.");
+
         var dataSource = DataSourceFactory.Create(connectionString);
 
-        services.AddDbContext<AppDbContext>(opts =>
-            opts.UseNpgsql(dataSource, npgsql => npgsql.EnableRetryOnFailure(3)));
-
         services.AddScoped<AuditInterceptor>();
+        services.AddDbContext<AppDbContext>((sp, opts) =>
+            opts.UseAgenticWorkforce(dataSource, sp.GetRequiredService<AuditInterceptor>()));
 
-        // Aggregate root repositories only
+        // Aggregate root repositories (query-only)
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IWorkflowRepository, WorkflowRepository>();
 
-        // Services
+        // Service stubs — replaced in later phases
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();
-        services.AddScoped<IDocumentStore, LocalFileDocumentStore>();
+        var docRoot = configuration["DocumentStore:BasePath"]
+            ?? Path.Combine(Path.GetTempPath(), "agenticworkforce-docs");
+        Directory.CreateDirectory(docRoot);
+        services.AddScoped<IDocumentStore>(_ => new LocalFileDocumentStore(docRoot));
 
         return services;
     }
 }
 ```
+
+Reading config inside `AddInfrastructure` lets integration tests override the connection string via an in-memory configuration source instead of stripping and re-binding DbContext registrations in DI.
 
 Note: Vertical-slice endpoints that need simple queries (learnings, events, costs, documents) inject `AppDbContext` directly. This is intentional — repositories add no value for read-only paginated queries.
 
@@ -481,15 +488,13 @@ Replace the current skeleton with proper registration:
 ```csharp
 using AgenticWorkforce.Infrastructure;
 using AgenticWorkforce.ServiceDefaults;
+using AgenticWorkforce.ServiceDefaults.Observability;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
-
-var connectionString = builder.Configuration.GetConnectionString("agenticworkforce")
-    ?? throw new InvalidOperationException("Connection string 'agenticworkforce' is required.");
-
-builder.Services.AddInfrastructure(connectionString);
+builder.AddObservability("AgenticWorkforce.Worker", source: "worker");
+builder.Services.AddInfrastructure(builder.Configuration);
 
 // Durable Task, Agent Runtime registered in Phase 6+
 
@@ -501,25 +506,18 @@ await host.RunAsync();
 
 ## 9. Integration Test Update
 
-Update `ApiWebApplicationFactory` to use `DataSourceFactory`:
+The factory publishes the Testcontainers connection string to configuration before the host is built, so `AddInfrastructure(IConfiguration)` resolves the right connection string with no DI surgery:
 
 ```csharp
 protected override void ConfigureWebHost(IWebHostBuilder builder)
 {
     builder.UseEnvironment("Testing");
-    builder.ConfigureServices(services =>
+    builder.ConfigureAppConfiguration(cfg =>
     {
-        // Remove existing registrations
-        var descriptors = services
-            .Where(d => d.ServiceType == typeof(DbContextOptions<AppDbContext>)
-                     || d.ServiceType.FullName?.Contains("NpgsqlDataSource") == true)
-            .ToList();
-        foreach (var d in descriptors) services.Remove(d);
-
-        // Register with Testcontainers
-        var dataSource = DataSourceFactory.Create(_postgres.GetConnectionString());
-        services.AddDbContext<AppDbContext>(opts =>
-            opts.UseNpgsql(dataSource, npgsql => npgsql.EnableRetryOnFailure(3)));
+        cfg.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:agenticworkforce"] = _postgres.GetConnectionString()
+        });
     });
 }
 ```
@@ -527,36 +525,36 @@ protected override void ConfigureWebHost(IWebHostBuilder builder)
 Add a basic smoke test:
 
 ```csharp
-public class DatabaseSmokeTests : IClassFixture<ApiWebApplicationFactory>
+public class DatabaseSmokeTests(ApiWebApplicationFactory factory)
+    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
 {
+    public Task InitializeAsync() => factory.StartAsync();
+    public Task DisposeAsync() => Task.CompletedTask;
+
     [Fact]
-    public async Task Database_MigratesAndSeeds_Successfully()
+    public async Task Database_MigratesAndConnects_Successfully()
     {
-        // Arrange
-        await _factory.StartAsync();
-        using var scope = _factory.Services.CreateScope();
+        using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        // Act
         await db.Database.MigrateAsync();
-
-        // Assert
         (await db.Database.CanConnectAsync()).Should().BeTrue();
     }
 
     [Fact]
     public async Task ProjectRepository_CreateAndRetrieve_Works()
     {
-        await _factory.StartAsync();
-        using var scope = _factory.Services.CreateScope();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.MigrateAsync();
+
+        var project = new Project { Name = $"Smoke {Guid.NewGuid():N}", Objective = "wiring" };
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
+
         var repo = scope.ServiceProvider.GetRequiredService<IProjectRepository>();
-
-        var project = new Project { Name = "Test", Objective = "Test objective" };
-        await repo.CreateAsync(project);
-
         var retrieved = await repo.GetByIdAsync(project.Id);
         retrieved.Should().NotBeNull();
-        retrieved!.Name.Should().Be("Test");
+        retrieved!.Name.Should().Be(project.Name);
     }
 }
 ```

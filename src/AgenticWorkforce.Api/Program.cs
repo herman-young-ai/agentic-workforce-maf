@@ -6,12 +6,13 @@ using Microsoft.Identity.Web;
 using NetEscapades.AspNetCore.SecurityHeaders;
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Api.Core.Exceptions;
+using AgenticWorkforce.Api.Core.Extensions;
 using AgenticWorkforce.Api.Core.Health;
 using AgenticWorkforce.Api.Core.Middleware;
-using AgenticWorkforce.Api.Core.Observability;
 using AgenticWorkforce.Infrastructure;
 using AgenticWorkforce.Infrastructure.Data;
 using AgenticWorkforce.ServiceDefaults;
+using AgenticWorkforce.ServiceDefaults.Observability;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,7 +21,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 // -- Observability (Serilog + PII masking) --
-builder.AddObservability();
+builder.AddObservability("AgenticWorkforce.Api", source: "web");
+
+// -- Application Insights (Api-only telemetry sink) --
+var aiConnectionString = builder.Configuration["ApplicationInsights:ConnectionString"];
+if (!string.IsNullOrEmpty(aiConnectionString))
+    builder.Services.AddApplicationInsightsTelemetry(opts =>
+        opts.ConnectionString = aiConnectionString);
 
 // -- Azure Key Vault (production) --
 if (builder.Environment.IsProduction())
@@ -74,13 +81,13 @@ builder.Services.AddAuthorizationBuilder()
         Roles.Agent, Roles.AgentReadOnly));
 
 // -- Database + Infrastructure (PostgreSQL + pgvector, repositories, services) --
-var connectionString = builder.Configuration.GetConnectionString("agenticworkforce")
-    ?? throw new InvalidOperationException("Connection string 'agenticworkforce' is required.");
-builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddInfrastructure(builder.Configuration);
 
 // -- Core services --
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+builder.Services.AddScoped<IProjectAuthorizationService, ProjectAuthorizationService>();
+builder.Services.AddSingleton<IIdempotencyService, InMemoryIdempotencyService>();
 
 // -- Health checks --
 builder.Services.AddHealthChecks()
@@ -150,8 +157,7 @@ builder.Services.AddSecurityHeaderPolicies(options =>
         })
         .RemoveServerHeader()));
 
-// -- Controllers & Swagger --
-builder.Services.AddControllers();
+// -- Swagger --
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(opts =>
 {
@@ -194,7 +200,14 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers();
+
+app.MapProjectEndpoints();
+app.MapTaskEndpoints();
+app.MapSessionEndpoints();
+app.MapMemberEndpoints();
+app.MapTeamEndpoints();
+app.MapAuthEndpoints();
+
 app.MapDefaultEndpoints();
 
 await app.RunAsync();

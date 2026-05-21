@@ -47,9 +47,20 @@ public interface ICurrentUserAccessor
     CurrentUser User { get; }
 }
 
-public class CurrentUserAccessor(IHttpContextAccessor httpContextAccessor) : ICurrentUserAccessor
+/// <summary>
+/// Scoped per request: resolves the <see cref="CurrentUser"/> from the request's
+/// <see cref="ClaimsPrincipal"/> on first access and caches it for the rest of
+/// the request. Without the cache, every property access re-walks the claims
+/// collection and allocates a fresh user — handlers typically read .Id and
+/// .Roles many times per request.
+/// </summary>
+public sealed class CurrentUserAccessor(IHttpContextAccessor httpContextAccessor) : ICurrentUserAccessor
 {
-    public CurrentUser User =>
+    private CurrentUser? _cached;
+
+    public CurrentUser User => _cached ??= Resolve();
+
+    private CurrentUser Resolve() =>
         httpContextAccessor.HttpContext?.User is { Identity.IsAuthenticated: true } principal
             ? CurrentUser.FromClaimsPrincipal(principal)
             : throw new UnauthorizedException();

@@ -40,7 +40,7 @@ Api/Features/{Resource}/
 Each file contains:
 1. A static class with a `MapEndpoints(IEndpointRouteBuilder)` method
 2. Request/Response record types
-3. The handler logic (calling repository directly — no service layer for CRUD)
+3. The handler logic — uses query repositories for non-trivial reads and `AppDbContext` directly for writes (no service layer, no CRUD repository shims)
 
 ### Endpoint Registration Pattern
 
@@ -61,10 +61,14 @@ public static class CreateProject
     private static async Task<IResult> HandleAsync(
         Request request,
         ICurrentUserAccessor user,
-        IProjectRepository repo,
+        AppDbContext db,
         CancellationToken ct)
     {
-        // handler logic
+        var project = new Project { Name = request.Name, Objective = request.Objective, ... };
+        db.Projects.Add(project);
+        await db.SaveChangesAsync(ct);
+        return Results.Created($"/api/v1/projects/{project.Id}",
+            new Response(project.Id, project.Name, project.CreatedAt));
     }
 }
 
@@ -97,51 +101,55 @@ app.UseSwaggerUI(opts => opts.SwaggerEndpoint("/openapi/v1.json", "v1")); // kee
 
 Remove `Swashbuckle.AspNetCore` from packages. Add `Microsoft.AspNetCore.OpenApi` (included in .NET 10 SDK — no extra package needed). Keep `Swashbuckle.AspNetCore.SwaggerUI` for the UI only if desired, or use Scalar.
 
-### Carry-over from Phase 2: Repository scope is aggregate roots only
+### Carry-over from Phase 2: Repositories are aggregate-root **query** abstractions only
 
 Phase 2's handoff established this rule and the codebase follows it:
 
-> **Repositories: ProjectRepository, TaskRepository, SessionRepository, WorkflowRepository. Aggregate roots only — vertical-slice handlers hit `AppDbContext` directly for non-aggregate reads.**
+> **Repositories: ProjectRepository, TaskRepository, SessionRepository, WorkflowRepository. Aggregate roots only, query-only — writes go through `AppDbContext` directly from vertical-slice handlers.**
 
 What this means for Phase 3 handlers:
 
-| Endpoint group | Use | Rationale |
-|----------------|-----|-----------|
-| Projects (CRUD/lifecycle) | `IProjectRepository` | Project is the aggregate root |
-| Tasks (lifecycle: approve/reject/retry/cancel, single get, create, single update) | `ITaskRepository` | AgenticTask is an aggregate root |
-| Sessions (single get, create, suspend/resume/complete) | `ISessionRepository` | Session is an aggregate root |
-| `ListTasks` with filters by `status, type, source, agent_name, parent_task_id` | `AppDbContext` directly | `ITaskRepository.GetByProjectIdAsync` only filters by `status`. Don't extend the interface — query `AppDbContext.Tasks` with LINQ in the handler |
-| `GetBoard`, `BulkApproveTask` | `AppDbContext` directly | Specialised read/write patterns; not worth a repo method |
-| `ListSessions`, `ListMessages` | `AppDbContext` directly | `ISessionRepository` deliberately has no list methods |
-| Members (`ListMembers`, `AddMember`, `UpdateMember`, `RemoveMember`, `TransferOwnership`) | `AppDbContext` directly on `DbSet<ProjectMember>` | `ProjectMember` is a child of `Project`, not an aggregate root. No `IMemberRepository` exists or should be added |
-| Team (`ListTeam`, `AddAgent`, `RemoveAgent`, `UpdateAgentPrompt`, `SeedTeam`) | `AppDbContext` directly on `DbSet<ProjectAgent>` + `DbSet<PromptVersion>` | Same reasoning — `ProjectAgent` and `PromptVersion` are not aggregate roots |
-| Auth (`GetMe`, `UpdateMe`, API key CRUD) | `AppDbContext` directly on `DbSet<User>` + `DbSet<ApiKey>` | `User` and `ApiKey` reads/writes are simple and have no domain logic beyond the entity |
+| Endpoint group | Reads | Writes |
+|----------------|-------|--------|
+| Projects (`GetProject`, `ListProjects`) | `IProjectRepository.GetByIdAsync` / `ListByMemberAsync` | `AppDbContext.Projects` |
+| Project lifecycle (`Create/Update/Pause/Resume/Archive/Delete`) | `IProjectRepository.GetByIdAsync` (returns tracked entity) | mutate the tracked entity, then `db.SaveChangesAsync(ct)` |
+| Tasks single-get + lifecycle (`GetTask`, `Approve/Reject/Retry/Cancel`) | `ITaskRepository.GetByIdAsync` (returns tracked entity) | mutate the tracked entity, then `db.SaveChangesAsync(ct)` |
+| `CreateTask`, `UpdateTask` | — | `AppDbContext.Tasks.Add(...)` + `SaveChangesAsync` |
+| `ListTasks` with filters by `status, type, source, agent_name, parent_task_id` | `AppDbContext` directly | — |
+| `GetBoard` | `ITaskRepository.GetBoardAsync` | — |
+| `BulkApproveTask` | `AppDbContext` directly (single LINQ query for the batch) | mutate, `SaveChangesAsync` |
+| Sessions single-get | `ISessionRepository.GetByIdAsync` | — |
+| Sessions (`Create`/lifecycle, `ListSessions`, `ListMessages`) | `AppDbContext` directly | `AppDbContext.Sessions` |
+| Members (`ListMembers`, `AddMember`, `UpdateMember`, `RemoveMember`, `TransferOwnership`) | `AppDbContext.ProjectMembers` | `AppDbContext.ProjectMembers` |
+| Team (`ListTeam`, `AddAgent`, `RemoveAgent`, `UpdateAgentPrompt`, `SeedTeam`) | `AppDbContext.ProjectAgents` + `PromptVersions` | `AppDbContext.ProjectAgents` + `PromptVersions` |
+| Auth (`GetMe`, `UpdateMe`, API key CRUD) | `AppDbContext.Users` + `ApiKeys` | `AppDbContext.Users` + `ApiKeys` |
 
-**Do not create new repository interfaces in this phase.** If you find yourself wanting one for `ProjectMember`/`ProjectAgent`/`User`/`ApiKey`/`PromptVersion`, the answer is to inject `AppDbContext` into the handler and write the LINQ inline.
+**Do not create new repository interfaces in this phase.** Do not add `CreateAsync`/`UpdateAsync` methods to the existing four — `db.Set.Add(entity); await db.SaveChangesAsync(ct)` and `entity.X = …; await db.SaveChangesAsync(ct)` are already the right shape.
 
-The four existing repository interfaces and their exact methods (from Phase 2):
+**Do not call `db.Set.Update(entity)` on a tracked entity.** Entities returned from `GetByIdAsync` are already in the change tracker — `Update` marks every column Modified and fights the tracker. Mutate the properties you need and call `SaveChangesAsync`.
+
+The four existing repository interfaces and their exact methods:
 
 ```csharp
 public interface IProjectRepository {
   Task<Project?> GetByIdAsync(Guid id, CancellationToken ct = default);
   Task<IReadOnlyList<Project>> ListByMemberAsync(Guid userId, CancellationToken ct = default);
-  Task<Project> CreateAsync(Project project, CancellationToken ct = default);
-  Task<Project> UpdateAsync(Project project, CancellationToken ct = default);
   Task<bool> ExistsByNameAsync(string name, CancellationToken ct = default);
 }
 
 public interface ITaskRepository {
   Task<AgenticTask?> GetByIdAsync(Guid id, CancellationToken ct = default);
   Task<IReadOnlyList<AgenticTask>> GetByProjectIdAsync(Guid projectId, TaskStatus? status = null, CancellationToken ct = default);
-  Task<AgenticTask> CreateAsync(AgenticTask task, CancellationToken ct = default);
-  Task<AgenticTask> UpdateAsync(AgenticTask task, CancellationToken ct = default);
   Task<IReadOnlyList<AgenticTask>> GetBoardAsync(Guid projectId, CancellationToken ct = default);
 }
 
 public interface ISessionRepository {
   Task<Session?> GetByIdAsync(Guid id, CancellationToken ct = default);
-  Task<Session> CreateAsync(Session session, CancellationToken ct = default);
-  Task<Session> UpdateAsync(Session session, CancellationToken ct = default);
+}
+
+public interface IWorkflowRepository {
+  Task<WorkflowDefinition?> GetDefinitionByIdAsync(Guid id, CancellationToken ct = default);
+  Task<WorkflowRun?> GetRunByIdAsync(Guid id, CancellationToken ct = default);
 }
 ```
 
@@ -325,7 +333,7 @@ For Phase 3, implement with in-memory dictionary (Redis integration comes in Pha
 
 ### Project-Scoped Authorization Flow
 
-Every project-scoped endpoint follows this pattern:
+Every project-scoped endpoint follows this pattern. `IProjectRepository.GetByIdAsync` returns the entity tracked, so handlers mutate it and persist with a single `SaveChangesAsync`:
 
 ```csharp
 private static async Task<IResult> HandleAsync(
@@ -333,6 +341,7 @@ private static async Task<IResult> HandleAsync(
     ICurrentUserAccessor userAccessor,
     IProjectAuthorizationService authz,
     IProjectRepository repo,
+    AppDbContext db,
     CancellationToken ct)
 {
     var user = userAccessor.User;
@@ -341,7 +350,9 @@ private static async Task<IResult> HandleAsync(
     var project = await repo.GetByIdAsync(projectId, ct)
         ?? throw new NotFoundException("Project", projectId);
 
-    // ... business logic ...
+    project.Status = ProjectStatus.Paused;
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
 }
 ```
 
@@ -356,6 +367,7 @@ if (task.CreatedById == user.Id)
     throw new ForbiddenException("Segregation of duties: creator cannot approve their own task.");
 
 task.Status = TaskStatus.Approved;
+await db.SaveChangesAsync(ct);
 ```
 
 ### State Transition Validation

@@ -1,11 +1,13 @@
+using Microsoft.Extensions.Logging;
+
 namespace AgenticWorkforce.Api.Core.Middleware;
 
 /// <summary>
 /// Propagates or generates a correlation ID for every request.
-/// Pushed into Serilog LogContext for structured log correlation.
-/// Adopted verbatim from SecurityBff reference.
+/// Pushed into the logging scope so all log entries within the request
+/// carry a CorrelationId property regardless of logging provider.
 /// </summary>
-public class CorrelationIdMiddleware(RequestDelegate next)
+public class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationIdMiddleware> logger)
 {
     private const string HeaderName = "X-Correlation-ID";
 
@@ -17,7 +19,7 @@ public class CorrelationIdMiddleware(RequestDelegate next)
         context.Items["CorrelationId"] = correlationId;
         context.Response.Headers.TryAdd(HeaderName, correlationId);
 
-        using (Serilog.Context.LogContext.PushProperty("CorrelationId", correlationId))
+        using (logger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = correlationId }))
         {
             await next(context);
         }

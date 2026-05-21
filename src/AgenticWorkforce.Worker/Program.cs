@@ -1,14 +1,13 @@
 using AgenticWorkforce.Infrastructure;
 using AgenticWorkforce.ServiceDefaults;
+using AgenticWorkforce.ServiceDefaults.Observability;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddObservability("AgenticWorkforce.Worker", source: "worker");
 
-var connectionString = builder.Configuration.GetConnectionString("agenticworkforce")
-    ?? throw new InvalidOperationException("Connection string 'agenticworkforce' is required.");
-
-builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddInfrastructure(builder.Configuration);
 
 // Durable Task, Agent Runtime registered in Phase 6+
 

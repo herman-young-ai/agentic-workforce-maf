@@ -34,15 +34,16 @@ public class DatabaseSmokeTests(ApiWebApplicationFactory factory) : IClassFixtur
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
 
-        var repo = scope.ServiceProvider.GetRequiredService<IProjectRepository>();
         var project = new Project
         {
             Name = $"Smoke {Guid.NewGuid():N}",
             Objective = "Verify data layer wiring"
         };
 
-        await repo.CreateAsync(project);
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
 
+        var repo = scope.ServiceProvider.GetRequiredService<IProjectRepository>();
         var retrieved = await repo.GetByIdAsync(project.Id);
         retrieved.Should().NotBeNull();
         retrieved!.Name.Should().Be(project.Name);

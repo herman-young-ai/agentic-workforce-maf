@@ -17,10 +17,6 @@
     <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" />
     <PackageReference Include="Microsoft.Identity.Web" />
     <PackageReference Include="NetEscapades.AspNetCore.SecurityHeaders" />
-    <PackageReference Include="Serilog.AspNetCore" />
-    <PackageReference Include="Serilog.Enrichers.Sensitive" />
-    <PackageReference Include="Serilog.Formatting.Compact" />
-    <PackageReference Include="Serilog.Sinks.Console" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
   </ItemGroup>
 
