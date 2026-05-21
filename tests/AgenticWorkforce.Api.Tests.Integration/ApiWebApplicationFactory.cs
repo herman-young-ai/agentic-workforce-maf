@@ -1,6 +1,13 @@
+using AgenticWorkforce.Api.Core.Auth;
+using AgenticWorkforce.Domain.Entities;
+using AgenticWorkforce.Domain.Enums;
+using AgenticWorkforce.Infrastructure.Data;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 
 namespace AgenticWorkforce.Api.Tests.Integration;
@@ -24,13 +31,57 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+
         builder.ConfigureAppConfiguration(cfg =>
-        {
             cfg.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:agenticworkforce"] = _postgres.GetConnectionString()
-            });
-        });
+            }));
+
+        // Override JWT auth with the test auth handler so tests don't need real tokens
+        builder.ConfigureTestServices(services =>
+            services.AddAuthentication(defaultScheme: TestAuthHandler.SchemeName)
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { }));
+    }
+
+    /// <summary>
+    /// Creates an <see cref="HttpClient"/> that authenticates every request as the given test user.
+    /// </summary>
+    public HttpClient CreateAuthenticatedClient(Guid userId, string email, params string[] roles)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-User-Id",    userId.ToString());
+        client.DefaultRequestHeaders.Add("X-Test-User-Email", email);
+        if (roles.Length > 0)
+            client.DefaultRequestHeaders.Add("X-Test-User-Roles", string.Join(",", roles));
+        return client;
+    }
+
+    /// <summary>
+    /// Inserts a <see cref="User"/> row so FK constraints on <c>ProjectMember.UserId</c> are satisfied.
+    /// Must be called before any API call that creates a project (which auto-adds an owner member).
+    /// </summary>
+    public async Task<User> SeedUserAsync(Guid userId, string email, SystemRole systemRole = SystemRole.Member)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var existing = await db.Users.FindAsync(userId);
+        if (existing is not null)
+            return existing;
+
+        var user = new User
+        {
+            Id          = userId,
+            Email       = email,
+            DisplayName = email,
+            SystemRole  = systemRole,
+            IsActive    = true
+        };
+
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        return user;
     }
 
     public override async ValueTask DisposeAsync()

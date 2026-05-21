@@ -1,7 +1,7 @@
 # C# Code Quality Index (CQI)
 
-**Score: 62.5 / 100 — Adequate**  
-*(minimum: 55 | commit: `5b221c4` | 2026-05-21 05:06 UTC)*
+**Score: 60.3 / 100 — Adequate**  
+*(minimum: 55 | commit: `af446fd` | 2026-05-21 09:36 UTC)*
 
 | Metric | Value |
 |--------|------:|
@@ -12,9 +12,9 @@
 | Dimension | Score |
 |-----------|------:|
 | Security | 85 |
-| Robustness | 74 |
-| Elegance | 74 |
+| Robustness | 64 |
 | Modularity | 62 |
+| Elegance | 62 |
 | Maintainability | 60 |
 | Testability | 50 |
 | Reusability | 33 |

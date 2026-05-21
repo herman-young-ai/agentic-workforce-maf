@@ -35,7 +35,7 @@ internal sealed class ProjectAuthorizationService(
 
     // Enum declaration order: Owner=0, Operator=1, Reviewer=2, Viewer=3
     // Plan hierarchy (most → least): Owner > Reviewer > Operator > Viewer
-    private static int RoleRank(ProjectRole role) => role switch
+    internal static int RoleRank(ProjectRole role) => role switch
     {
         ProjectRole.Owner    => 4,
         ProjectRole.Reviewer => 3,
