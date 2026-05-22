@@ -1,4 +1,6 @@
+using AgenticWorkforce.Api.Features.Admin.Catalog;
 using AgenticWorkforce.Api.Features.Admin.Dashboard;
+using AgenticWorkforce.Api.Features.Admin.Knowledge;
 using AgenticWorkforce.Api.Features.Artifacts;
 using AgenticWorkforce.Api.Features.Auth;
 using AgenticWorkforce.Api.Features.Catalog;
@@ -216,5 +218,29 @@ public static class EndpointRegistrationExtensions
         GetOverview.MapEndpoints(app);
         GetAdminCosts.MapEndpoints(app);
         GetAdminCostTimeline.MapEndpoints(app);
+    }
+
+    public static void MapAdminCatalogEndpoints(this IEndpointRouteBuilder app)
+    {
+        AdminListCatalog.MapEndpoints(app);
+        AdminCreateAgent.MapEndpoints(app);
+        AdminGetAgent.MapEndpoints(app);
+        AdminUpdateAgent.MapEndpoints(app);
+        AdminDeleteAgent.MapEndpoints(app);
+        AdminUpdatePrompt.MapEndpoints(app);
+        AdminPromptHistory.MapEndpoints(app);
+        AdminEnableAgent.MapEndpoints(app);
+        AdminDisableAgent.MapEndpoints(app);
+        AdminSeedCatalog.MapEndpoints(app);
+    }
+
+    public static void MapAdminKnowledgeEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListPlatformLearnings.MapEndpoints(app);
+        ListPendingPromotions.MapEndpoints(app);
+        ApprovePromotion.MapEndpoints(app);
+        RejectPromotion.MapEndpoints(app);
+        EditPlatformLearning.MapEndpoints(app);
+        RetractPlatformLearning.MapEndpoints(app);
     }
 }

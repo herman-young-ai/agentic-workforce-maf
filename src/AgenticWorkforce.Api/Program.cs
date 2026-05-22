@@ -231,6 +231,8 @@ app.MapCostEndpoints();
 app.MapExecutionEndpoints();
 app.MapCatalogEndpoints();
 app.MapAdminDashboardEndpoints();
+app.MapAdminCatalogEndpoints();
+app.MapAdminKnowledgeEndpoints();
 
 app.MapDefaultEndpoints();
 

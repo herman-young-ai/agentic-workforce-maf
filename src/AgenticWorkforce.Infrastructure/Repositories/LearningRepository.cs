@@ -103,6 +103,15 @@ internal sealed class LearningRepository(AppDbContext db) : ILearningRepository
             .OrderBy(l => l.PromotionRequestedAt)
             .ToPagedResultAsync(paging, ct);
 
+    public Task<PagedResult<ProjectLearning>> ListApprovedAcrossProjectsPagedAsync(
+        PagedQuery paging,
+        CancellationToken ct = default)
+        => db.ProjectLearnings
+            .AsNoTracking()
+            .Where(l => l.PromotionStatus == PromotionStatus.Approved)
+            .OrderByDescending(l => l.PromotedAt)
+            .ToPagedResultAsync(paging, ct);
+
     public async Task<IReadOnlyList<LearningMatch>> SearchByEmbeddingAsync(
         Guid projectId,
         Vector queryEmbedding,

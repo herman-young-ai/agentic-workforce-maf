@@ -51,6 +51,15 @@ public interface ILearningRepository
         CancellationToken ct = default);
 
     /// <summary>
+    /// Cross-project list of platform-approved learnings
+    /// (PromotionStatus = Approved). Admin-only — there is no projectId
+    /// filter because by definition these are platform-level.
+    /// </summary>
+    Task<PagedResult<ProjectLearning>> ListApprovedAcrossProjectsPagedAsync(
+        PagedQuery paging,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Vector similarity search across the project's learnings. Caller must
     /// have already obtained a query embedding via <c>IEmbeddingService</c>.
     /// </summary>
