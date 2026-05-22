@@ -45,6 +45,17 @@ if ! dotnet test "$SLN" --nologo --verbosity quiet --no-build; then
   exit 1
 fi
 
+# -- 2b. Machine-checkable rules (docs/004-rules/*.jsonl) --
+# Without this gate the rules drift silently — Phase 3 shipped a violation
+# of DL-001 across 32 files because the hook never invoked the rules check.
+# Run --errors-only so warnings don't add noise on the commit path.
+echo "  -> rules"
+if ! ./scripts/check-rules.sh --errors-only >/dev/null; then
+  echo "  x Machine-checkable rule violations. Commit aborted."
+  echo "    Run: ./scripts/check-rules.sh to see details."
+  exit 1
+fi
+
 # -- 3. CQI — fast mode (no coverage, no semgrep) --
 echo "  -> CQI"
 CQI_JSON=$(./scripts/code-quality.sh "$SLN" --json --no-coverage --no-semgrep 2>/dev/null)

@@ -1,10 +1,8 @@
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Api.Core.Pagination;
 using AgenticWorkforce.Domain.Enums;
-using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Pagination;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Sessions;
 
@@ -32,24 +30,19 @@ public static class ListSessions
         [FromQuery] SessionStatus? status,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        ISessionRepository repo,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Viewer, ct);
 
-        var query = db.Sessions
-            .AsNoTracking()
-            .Where(s => s.ProjectId == projectId);
+        var page = await repo.ListByProjectPagedAsync(projectId, status, paging, ct);
 
-        if (status.HasValue) query = query.Where(s => s.Status == status.Value);
-
-        var result = await query
-            .OrderByDescending(s => s.CreatedAt)
+        var items = page.Items
             .Select(s => new Response(s.Id, s.Status, s.UserId, s.AgentName, s.Goal,
                 s.TotalCostUsd, s.LastActivityAt, s.CreatedAt))
-            .ToPagedResultAsync(paging, ct);
+            .ToList();
 
-        return Results.Ok(result);
+        return Results.Ok(new PagedResult<Response>(items, page.Page, page.PageSize, page.TotalCount));
     }
 }

@@ -1,4 +1,3 @@
-using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Services;
 using FluentAssertions;
@@ -54,27 +53,27 @@ public class ApproveTaskTests
     }
 
     // -------------------------------------------------------------------------
-    // ProjectAuthorizationService.RoleRank — permission hierarchy
+    // ProjectRole — seniority hierarchy via direct enum order (Phase 3.5)
     // -------------------------------------------------------------------------
+    //
+    // Phase 3.5 renumbered ProjectRole so integer order matches seniority and
+    // deleted the RoleRank switch. These tests assert that direct >= comparison
+    // gives the right answer for every (userRole, minimumRole) pair.
 
     [Fact]
-    public void RoleRank_OwnerOutranksAll()
+    public void ProjectRole_OwnerOutranksAll()
     {
-        var ownerRank = ProjectAuthorizationService.RoleRank(ProjectRole.Owner);
-
-        ownerRank.Should().BeGreaterThan(ProjectAuthorizationService.RoleRank(ProjectRole.Reviewer));
-        ownerRank.Should().BeGreaterThan(ProjectAuthorizationService.RoleRank(ProjectRole.Operator));
-        ownerRank.Should().BeGreaterThan(ProjectAuthorizationService.RoleRank(ProjectRole.Viewer));
+        ((int)ProjectRole.Owner).Should().BeGreaterThan((int)ProjectRole.Reviewer);
+        ((int)ProjectRole.Owner).Should().BeGreaterThan((int)ProjectRole.Operator);
+        ((int)ProjectRole.Owner).Should().BeGreaterThan((int)ProjectRole.Viewer);
     }
 
     [Fact]
-    public void RoleRank_ViewerIsLowest()
+    public void ProjectRole_ViewerIsLowest()
     {
-        var viewerRank = ProjectAuthorizationService.RoleRank(ProjectRole.Viewer);
-
-        viewerRank.Should().BeLessThan(ProjectAuthorizationService.RoleRank(ProjectRole.Operator));
-        viewerRank.Should().BeLessThan(ProjectAuthorizationService.RoleRank(ProjectRole.Reviewer));
-        viewerRank.Should().BeLessThan(ProjectAuthorizationService.RoleRank(ProjectRole.Owner));
+        ((int)ProjectRole.Viewer).Should().BeLessThan((int)ProjectRole.Operator);
+        ((int)ProjectRole.Viewer).Should().BeLessThan((int)ProjectRole.Reviewer);
+        ((int)ProjectRole.Viewer).Should().BeLessThan((int)ProjectRole.Owner);
     }
 
     // Each row: (userRole, minimumRole, shouldHaveAccess)
@@ -95,11 +94,6 @@ public class ApproveTaskTests
     [InlineData(ProjectRole.Viewer,   ProjectRole.Operator, false)]
     [InlineData(ProjectRole.Viewer,   ProjectRole.Reviewer, false)]
     [InlineData(ProjectRole.Viewer,   ProjectRole.Owner,    false)]
-    public void RoleRank_HierarchyIsCorrect(ProjectRole userRole, ProjectRole minimumRole, bool hasAccess)
-    {
-        var result = ProjectAuthorizationService.RoleRank(userRole)
-                  >= ProjectAuthorizationService.RoleRank(minimumRole);
-
-        result.Should().Be(hasAccess);
-    }
+    public void ProjectRole_HierarchyIsCorrect(ProjectRole userRole, ProjectRole minimumRole, bool hasAccess) =>
+        (userRole >= minimumRole).Should().Be(hasAccess);
 }

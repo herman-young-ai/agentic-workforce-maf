@@ -1,9 +1,9 @@
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Api.Core.Pagination;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Pagination;
+using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Sessions;
 
@@ -33,27 +33,22 @@ public static class ListMessages
         [AsParameters] PagedQuery paging,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        ISessionRepository repo,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Viewer, ct);
 
-        var sessionExists = await db.Sessions
-            .AsNoTracking()
-            .AnyAsync(s => s.Id == sessionId && s.ProjectId == projectId, ct);
-
-        if (!sessionExists)
+        if (!await repo.ExistsInProjectAsync(sessionId, projectId, ct))
             throw new NotFoundException("Session", sessionId);
 
-        var result = await db.SessionMessages
-            .AsNoTracking()
-            .Where(m => m.SessionId == sessionId)
-            .OrderBy(m => m.CreatedAt)
+        var page = await repo.ListMessagesPagedAsync(sessionId, paging, ct);
+
+        var items = page.Items
             .Select(m => new Response(m.Id, m.Role, m.Content, m.SenderId, m.Model,
                 m.InputTokens, m.OutputTokens, m.CostUsd, m.ToolName, m.CreatedAt))
-            .ToPagedResultAsync(paging, ct);
+            .ToList();
 
-        return Results.Ok(result);
+        return Results.Ok(new PagedResult<Response>(items, page.Page, page.PageSize, page.TotalCount));
     }
 }

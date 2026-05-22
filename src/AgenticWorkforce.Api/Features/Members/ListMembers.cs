@@ -1,8 +1,6 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
-using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 
 namespace AgenticWorkforce.Api.Features.Members;
 
@@ -25,20 +23,18 @@ public static class ListMembers
         Guid projectId,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        IProjectMemberRepository members,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Viewer, ct);
 
-        var members = await db.ProjectMembers
-            .AsNoTracking()
-            .Where(m => m.ProjectId == projectId)
-            .Include(m => m.User)
-            .OrderBy(m => m.CreatedAt)
-            .Select(m => new Response(m.UserId, m.User.Email, m.User.DisplayName, m.Role, m.CreatedAt))
-            .ToListAsync(ct);
+        var list = await members.ListByProjectAsync(projectId, ct);
 
-        return Results.Ok(members);
+        var response = list
+            .Select(m => new Response(m.UserId, m.User.Email, m.User.DisplayName, m.Role, m.CreatedAt))
+            .ToList();
+
+        return Results.Ok(response);
     }
 }

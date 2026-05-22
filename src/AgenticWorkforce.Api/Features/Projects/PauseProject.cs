@@ -2,7 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
 
 namespace AgenticWorkforce.Api.Features.Projects;
 
@@ -19,7 +18,6 @@ public static class PauseProject
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IProjectRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -32,7 +30,7 @@ public static class PauseProject
             throw new InvalidStateException($"Only active projects can be paused (current status: {project.Status}).");
 
         project.Status = ProjectStatus.Paused;
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(project, ct);
 
         return Results.NoContent();
     }

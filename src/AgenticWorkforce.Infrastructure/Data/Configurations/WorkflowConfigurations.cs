@@ -34,6 +34,9 @@ internal sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workfl
         e.HasOne(r => r.Session).WithMany()
             .HasForeignKey(r => r.SessionId)
             .OnDelete(DeleteBehavior.SetNull);
+        e.HasOne(r => r.TriggeredByUser).WithMany()
+            .HasForeignKey(r => r.TriggeredById)
+            .OnDelete(DeleteBehavior.SetNull);
         e.HasIndex(r => new { r.ProjectId, r.Status });
         e.HasIndex(r => r.WorkflowDefinitionId);
     }

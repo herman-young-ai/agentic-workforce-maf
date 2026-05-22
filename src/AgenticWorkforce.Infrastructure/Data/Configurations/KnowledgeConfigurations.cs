@@ -22,8 +22,14 @@ internal sealed class ProjectLearningConfiguration : IEntityTypeConfiguration<Pr
         e.HasOne(l => l.Contradicts).WithMany()
             .HasForeignKey(l => l.ContradictsId)
             .OnDelete(DeleteBehavior.SetNull);
+        e.HasOne(l => l.PromotionRequestedBy).WithMany()
+            .HasForeignKey(l => l.PromotionRequestedById)
+            .OnDelete(DeleteBehavior.SetNull);
         e.HasIndex(l => new { l.ProjectId, l.Status });
         e.HasIndex(l => l.TaskId);
+        // Drives ListPendingPromotions queue ordering — ordered by request time
+        // within the pending status.
+        e.HasIndex(l => new { l.PromotionStatus, l.PromotionRequestedAt });
         e.Property(l => l.Embedding).HasColumnType("vector(1536)");
     }
 }

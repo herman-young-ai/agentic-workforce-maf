@@ -39,12 +39,19 @@ public static class InfrastructureServiceExtensions
         services.AddDbContext<AppDbContext>((sp, opts) =>
             opts.UseAgenticWorkforce(sp.GetRequiredService<NpgsqlDataSource>(), sp.GetRequiredService<AuditInterceptor>()));
 
-        // Aggregate-root query repositories. Writes go through AppDbContext
-        // directly from vertical-slice handlers.
+        // Repositories — every Api handler's data access flows through these
+        // (rule DL-001, Principle 4 Wrap the Core). AppDbContext stays internal
+        // to Infrastructure.
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IWorkflowRepository, WorkflowRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
+        services.AddScoped<IProjectMemberRepository, ProjectMemberRepository>();
+        services.AddScoped<IProjectAgentRepository, ProjectAgentRepository>();
+        services.AddScoped<IAgentCatalogRepository, AgentCatalogRepository>();
+        services.AddScoped<IPromptVersionRepository, PromptVersionRepository>();
 
         // Service stubs — replaced in Phase 6+ (embedding provider) and Phase 11 (blob storage)
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();

@@ -3,9 +3,9 @@ using AgenticWorkforce.Domain.Entities;
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
 
 /// <summary>
-/// Query-only abstraction for the Workflow aggregate (Definitions + Runs).
-/// Writes go through <c>AppDbContext.WorkflowDefinitions</c> /
-/// <c>AppDbContext.WorkflowRuns</c> directly from vertical-slice handlers.
+/// Query interface for the Workflow aggregate (Definitions + Runs).
+/// Phase 3.5 keeps this surface narrow; Phase 4 expands it with workflow CRUD
+/// and run listings as new endpoints land.
 /// </summary>
 public interface IWorkflowRepository
 {

@@ -4,9 +4,10 @@ using AgenticWorkforce.Domain.Exceptions;
 namespace AgenticWorkforce.Api.Core.Auth;
 
 /// <summary>
-/// Resolved from JWT claims. Supports both Entra ID v1/v2 tokens
-/// and API key authentication.
-/// Adopted from SecurityBff reference, extended for agent identities.
+/// Resolved from JWT claims. Supports both Entra ID v1/v2 tokens and API key
+/// authentication. Failures to resolve identity claims throw rather than
+/// fall back to sentinel values (Principle 8: Fail Fast) — a token without
+/// identity is not authenticated regardless of <see cref="ClaimsIdentity.IsAuthenticated"/>.
 /// </summary>
 public class CurrentUser
 {
@@ -19,27 +20,44 @@ public class CurrentUser
 
     public static CurrentUser FromClaimsPrincipal(ClaimsPrincipal principal) => new()
     {
-        Id = ResolveObjectId(principal),
-        Email = principal.FindFirstValue(ClaimTypes.Email)
-             ?? principal.FindFirstValue("preferred_username")
-             ?? principal.FindFirstValue("upn")
-             ?? string.Empty,
-        DisplayName = principal.FindFirstValue("name")
-                   ?? principal.FindFirstValue(ClaimTypes.Name)
-                   ?? string.Empty,
-        Roles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList()
+        Id          = ResolveObjectId(principal),
+        Email       = ResolveEmail(principal),
+        DisplayName = ResolveDisplayName(principal),
+        Roles       = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList()
     };
 
     private static Guid ResolveObjectId(ClaimsPrincipal principal)
     {
-        string? raw =
-            principal.FindFirstValue("oid")
-         ?? principal.FindFirstValue("http://schemas.microsoft.com/identity/claims/objectidentifier")
-         ?? principal.FindFirstValue("uid")
-         ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        var raw = principal.FindFirstValue("oid")
+               ?? principal.FindFirstValue("http://schemas.microsoft.com/identity/claims/objectidentifier")
+               ?? principal.FindFirstValue("uid")
+               ?? principal.FindFirstValue(ClaimTypes.NameIdentifier)
+               ?? throw new TokenInvalidException(
+                    "Token has no object-identifier claim (oid, objectidentifier, uid, or nameidentifier required).");
 
-        return Guid.TryParse(raw, out var id) ? id : Guid.Empty;
+        if (!Guid.TryParse(raw, out var id))
+            throw new TokenInvalidException(
+                $"Token object-identifier claim '{raw}' is not a valid Guid.");
+
+        if (id == Guid.Empty)
+            throw new TokenInvalidException(
+                "Token object-identifier claim is the empty Guid; treat as anonymous.");
+
+        return id;
     }
+
+    private static string ResolveEmail(ClaimsPrincipal principal)
+        => principal.FindFirstValue(ClaimTypes.Email)
+        ?? principal.FindFirstValue("preferred_username")
+        ?? principal.FindFirstValue("upn")
+        ?? throw new TokenInvalidException(
+             "Token has no email-equivalent claim (email, preferred_username, or upn required).");
+
+    private static string ResolveDisplayName(ClaimsPrincipal principal)
+        => principal.FindFirstValue("name")
+        ?? principal.FindFirstValue(ClaimTypes.Name)
+        ?? throw new TokenInvalidException(
+             "Token has no display-name claim (name or givenname required).");
 }
 
 public interface ICurrentUserAccessor
@@ -51,8 +69,7 @@ public interface ICurrentUserAccessor
 /// Scoped per request: resolves the <see cref="CurrentUser"/> from the request's
 /// <see cref="ClaimsPrincipal"/> on first access and caches it for the rest of
 /// the request. Without the cache, every property access re-walks the claims
-/// collection and allocates a fresh user — handlers typically read .Id and
-/// .Roles many times per request.
+/// collection and allocates a fresh user.
 /// </summary>
 public sealed class CurrentUserAccessor(IHttpContextAccessor httpContextAccessor) : ICurrentUserAccessor
 {

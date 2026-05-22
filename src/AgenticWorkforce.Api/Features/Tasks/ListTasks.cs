@@ -1,10 +1,8 @@
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Api.Core.Pagination;
 using AgenticWorkforce.Domain.Enums;
-using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Pagination;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
 
@@ -37,27 +35,19 @@ public static class ListTasks
         [FromQuery] Guid? parentTaskId,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        ITaskRepository repo,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Viewer, ct);
 
-        var query = db.Tasks
-            .AsNoTracking()
-            .Where(t => t.ProjectId == projectId);
+        var filter = new TaskListFilter(status, type, source, agentName, parentTaskId);
+        var page = await repo.ListByProjectPagedAsync(projectId, filter, paging, ct);
 
-        if (status.HasValue) query = query.Where(t => t.Status == status.Value);
-        if (type.HasValue) query = query.Where(t => t.Type == type.Value);
-        if (source.HasValue) query = query.Where(t => t.Source == source.Value);
-        if (agentName is not null) query = query.Where(t => t.AgentName == agentName);
-        if (parentTaskId.HasValue) query = query.Where(t => t.ParentTaskId == parentTaskId.Value);
-
-        var result = await query
-            .OrderByDescending(t => t.CreatedAt)
+        var items = page.Items
             .Select(t => new Response(t.Id, t.Type, t.Status, t.Objective, t.AgentName, t.Source, t.CostUsd, t.ParentTaskId, t.CreatedAt))
-            .ToPagedResultAsync(paging, ct);
+            .ToList();
 
-        return Results.Ok(result);
+        return Results.Ok(new PagedResult<Response>(items, page.Page, page.PageSize, page.TotalCount));
     }
 }

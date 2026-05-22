@@ -29,7 +29,8 @@ The hook commits `.codemap/map.md`, `.codemap/quality.md`, and `.codemap/quality
 | 1 | Domain Alignment | — | Entities, enums, and interfaces match the architecture docs exactly |
 | 2 | Data Layer | Phase 1 | EF Core configurations, migrations, repository implementations, DB seeds |
 | 3 | API Vertical Slices (Core) | Phase 2 | Projects, Tasks, Sessions, Members CRUD endpoints with auth |
-| 4 | API Vertical Slices (Extended) | Phase 3 | Workflows, Knowledge, Documents, Events, Cost/Budget endpoints |
+| 3.5 | Boundary Remediation | Phase 3 | DL-001 honoured: 32 endpoint files refactored to remove `AppDbContext` from Api; 6 new repositories; SOD + promotion schema retrofits; 5 companion fixes |
+| 4 | API Vertical Slices (Extended) | Phase 3.5 | Workflows, Knowledge, Documents, Events, Cost/Budget endpoints |
 | 5 | Real-time & Events | Phase 4 | SignalR hub, Redis pub/sub, project console, SSE streaming |
 | 6 | Agent Runtime | Phase 5 | AgentFactory, ChatClientFactory, PromptAssembler, ToolRegistry, IChatClient pipeline |
 | 7 | Agent Catalog & Tools | Phase 6 | Seed YAML agents, platform tools, context provider, verification pipeline |
@@ -96,6 +97,19 @@ The primary CRUD endpoints that constitute an MVP API:
 - `Idempotency-Key` middleware for create operations
 
 **Verification:** `dotnet test` — all unit + integration tests pass against real PostgreSQL
+
+---
+
+### Phase 3.5: Boundary Remediation
+
+Phase 3 shipped 32 endpoint files that inject `AppDbContext` directly into Api handlers, contradicting rule DL-001, Principle 4 (Wrap the Core), and the C# coding standard. The Phase 3 plan itself codified the violation (§Architecture Pattern, line 43). This corrective phase reverses that decision before Phase 4 multiplies it across 85 more files. Full detail in [003a-phase-3-5-boundary-remediation.md](003a-phase-3-5-boundary-remediation.md).
+
+- Refactor 32 endpoint files + `ProjectAuthorizationService` to inject typed repositories instead of `AppDbContext`
+- Add 6 new repositories: `IUserRepository`, `IApiKeyRepository`, `IProjectMemberRepository`, `IProjectAgentRepository`, `IAgentCatalogRepository`, `IPromptVersionRepository`
+- Apply schema retrofits required by Phase 4: `WorkflowRun.TriggeredById Guid?` FK (for §4.4 SOD) and `ProjectLearning.PromotionStatus` enum + supporting fields (for §4.18 promotion approval), as a single migration `AddSodAndPromotionStateRetrofits`
+- Companion fixes bundled with the refactor: idempotency user-scoping, `CurrentUser.ResolveObjectId` fail-fast on missing oid claim, server-side pagination on all `List*` endpoints, `ProjectRole` enum renumbered and `RoleRank` switch deleted, obsoleted repository XML comments cleaned
+
+**Verification:** `dotnet build` + `dotnet test` exit 0 with **no Phase 3 test edits** (refactor must be behaviour-preserving); `grep` for `AppDbContext` outside `Program.cs`/`DatabaseHealthCheck` returns zero; `scripts/check-rules.sh` passes DL-001 and MB-001 through MB-005; CQI does not regress.
 
 ---
 

@@ -1,6 +1,5 @@
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 
 namespace AgenticWorkforce.Api.Features.Auth;
 
@@ -24,18 +23,17 @@ public static class ListApiKeys
 
     private static async Task<IResult> HandleAsync(
         ICurrentUserAccessor userAccessor,
-        AppDbContext db,
+        IApiKeyRepository apiKeys,
         CancellationToken ct)
     {
         var user = userAccessor.User;
+        var keys = await apiKeys.ListByUserAsync(user.Id, ct);
 
-        var keys = await db.ApiKeys
-            .AsNoTracking()
-            .Where(k => k.UserId == user.Id && k.RevokedAt == null)
-            .OrderByDescending(k => k.CreatedAt)
-            .Select(k => new Response(k.Id, k.Name, k.KeyPrefix, k.ExpiresAt, k.RevokedAt, k.LastUsedAt, k.Scopes, k.CreatedAt))
-            .ToListAsync(ct);
+        var response = keys
+            .Select(k => new Response(
+                k.Id, k.Name, k.KeyPrefix, k.ExpiresAt, k.RevokedAt, k.LastUsedAt, k.Scopes, k.CreatedAt))
+            .ToList();
 
-        return Results.Ok(keys);
+        return Results.Ok(response);
     }
 }

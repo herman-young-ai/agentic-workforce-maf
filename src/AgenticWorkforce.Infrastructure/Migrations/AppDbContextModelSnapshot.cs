@@ -39,9 +39,10 @@ namespace AgenticWorkforce.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "learning_kind", new[] { "failure_pattern", "success_pattern", "anti_pattern", "retry_strategy", "capability_gap", "domain_insight" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "learning_status", new[] { "active", "retracted", "superseded" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "message_role", new[] { "user", "assistant", "system", "tool_call", "tool_result" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_role", new[] { "owner", "operator", "reviewer", "viewer" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_role", new[] { "viewer", "operator", "reviewer", "owner" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_status", new[] { "active", "paused", "completed", "archived" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_tier", new[] { "user", "platform" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "promotion_status", new[] { "none", "pending_approval", "approved", "rejected" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "session_status", new[] { "active", "suspended", "completed", "expired", "failed" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "system_role", new[] { "platform_admin", "member" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "task_source", new[] { "workflow", "planner", "manual", "ad_hoc", "retry", "system" });
@@ -1524,10 +1525,6 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("occurrence_count");
 
-                    b.Property<bool>("PlatformPromoted")
-                        .HasColumnType("boolean")
-                        .HasColumnName("platform_promoted");
-
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("project_id");
@@ -1539,6 +1536,22 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                     b.Property<string>("PromotedBy")
                         .HasColumnType("text")
                         .HasColumnName("promoted_by");
+
+                    b.Property<string>("PromotionRejectedReason")
+                        .HasColumnType("text")
+                        .HasColumnName("promotion_rejected_reason");
+
+                    b.Property<DateTime?>("PromotionRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("promotion_requested_at");
+
+                    b.Property<Guid?>("PromotionRequestedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("promotion_requested_by_id");
+
+                    b.Property<PromotionStatus>("PromotionStatus")
+                        .HasColumnType("promotion_status")
+                        .HasColumnName("promotion_status");
 
                     b.Property<string>("Recommendation")
                         .HasColumnType("text")
@@ -1585,6 +1598,9 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                     b.HasIndex("ContradictsId")
                         .HasDatabaseName("ix_project_learnings_contradicts_id");
 
+                    b.HasIndex("PromotionRequestedById")
+                        .HasDatabaseName("ix_project_learnings_promotion_requested_by_id");
+
                     b.HasIndex("SupersededById")
                         .HasDatabaseName("ix_project_learnings_superseded_by_id");
 
@@ -1593,6 +1609,9 @@ namespace AgenticWorkforce.Infrastructure.Migrations
 
                     b.HasIndex("ProjectId", "Status")
                         .HasDatabaseName("ix_project_learnings_project_id_status");
+
+                    b.HasIndex("PromotionStatus", "PromotionRequestedAt")
+                        .HasDatabaseName("ix_project_learnings_promotion_status_promotion_requested_at");
 
                     b.ToTable("project_learnings", null, t =>
                         {
@@ -2243,6 +2262,10 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("triggered_by");
 
+                    b.Property<Guid?>("TriggeredById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("triggered_by_id");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -2265,6 +2288,9 @@ namespace AgenticWorkforce.Infrastructure.Migrations
 
                     b.HasIndex("SessionId")
                         .HasDatabaseName("ix_workflow_runs_session_id");
+
+                    b.HasIndex("TriggeredById")
+                        .HasDatabaseName("ix_workflow_runs_triggered_by_id");
 
                     b.HasIndex("WorkflowDefinitionId")
                         .HasDatabaseName("ix_workflow_runs_workflow_definition_id");
@@ -2705,6 +2731,12 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_project_learnings_projects_project_id");
 
+                    b.HasOne("AgenticWorkforce.Domain.Entities.User", "PromotionRequestedBy")
+                        .WithMany()
+                        .HasForeignKey("PromotionRequestedById")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_project_learnings_users_promotion_requested_by_id");
+
                     b.HasOne("AgenticWorkforce.Domain.Entities.ProjectLearning", "SupersededBy")
                         .WithMany()
                         .HasForeignKey("SupersededById")
@@ -2720,6 +2752,8 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                     b.Navigation("Contradicts");
 
                     b.Navigation("Project");
+
+                    b.Navigation("PromotionRequestedBy");
 
                     b.Navigation("SupersededBy");
 
@@ -2859,6 +2893,12 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_workflow_runs_sessions_session_id");
 
+                    b.HasOne("AgenticWorkforce.Domain.Entities.User", "TriggeredByUser")
+                        .WithMany()
+                        .HasForeignKey("TriggeredById")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_workflow_runs_users_triggered_by_id");
+
                     b.HasOne("AgenticWorkforce.Domain.Entities.WorkflowDefinition", "WorkflowDefinition")
                         .WithMany()
                         .HasForeignKey("WorkflowDefinitionId")
@@ -2869,6 +2909,8 @@ namespace AgenticWorkforce.Infrastructure.Migrations
                     b.Navigation("Project");
 
                     b.Navigation("Session");
+
+                    b.Navigation("TriggeredByUser");
 
                     b.Navigation("WorkflowDefinition");
                 });

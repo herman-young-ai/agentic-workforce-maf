@@ -2,7 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
@@ -28,7 +27,6 @@ public static class UpdateTask
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         ITaskRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -54,7 +52,7 @@ public static class UpdateTask
         if (request.Inputs is not null) task.Inputs = request.Inputs;
         if (request.MaxRetries.HasValue) task.MaxRetries = request.MaxRetries.Value;
 
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(task, ct);
 
         return Results.NoContent();
     }

@@ -13,7 +13,17 @@ public class WorkflowRun : ProjectScopedEntity
     public Guid? SessionId { get; set; }
     public Session? Session { get; set; }
     public string? TriggerType { get; set; }
+
+    // Human-readable provenance (e.g. "schedule-cron-0942", "agent: workflow.designer").
+    // For typed user identity (used for SOD enforcement on human input approvals),
+    // see TriggeredById.
     public string? TriggeredBy { get; set; }
+
+    // FK to the User who triggered this run. Null when the trigger is a schedule
+    // or agent (no owning human). Compared against the responder's user id to
+    // enforce Principle 11 (Segregation of Duties) on HumanInputRequest.Respond.
+    public Guid? TriggeredById { get; set; }
+    public User? TriggeredByUser { get; set; }
 
     [Column(TypeName = "jsonb")]
     public string? Context { get; set; }

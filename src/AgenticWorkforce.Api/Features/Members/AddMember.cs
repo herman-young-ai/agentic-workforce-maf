@@ -2,9 +2,8 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Members;
 
@@ -27,7 +26,8 @@ public static class AddMember
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IIdempotencyService idempotency,
-        AppDbContext db,
+        IUserRepository users,
+        IProjectMemberRepository members,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -35,35 +35,30 @@ public static class AddMember
 
         if (idempotencyKey is not null)
         {
-            var cached = await idempotency.GetCachedResponseAsync<Response>(idempotencyKey, ct);
+            var cached = await idempotency.GetCachedResponseAsync<Response>(user.Id, idempotencyKey, ct);
             if (cached is not null)
                 return Results.Created($"/api/v1/projects/{projectId}/members/{cached.UserId}", cached);
         }
 
-        var targetUserExists = await db.Users.AnyAsync(u => u.Id == request.UserId && u.IsActive, ct);
-        if (!targetUserExists)
+        var targetUser = await users.GetByIdAsync(request.UserId, ct);
+        if (targetUser is null || !targetUser.IsActive)
             throw new NotFoundException("User", request.UserId);
 
-        var existingMember = await db.ProjectMembers
-            .AnyAsync(m => m.ProjectId == projectId && m.UserId == request.UserId, ct);
-
-        if (existingMember)
+        var existing = await members.GetMembershipAsync(request.UserId, projectId, ct);
+        if (existing is not null)
             throw new AlreadyExistsException("Member", $"User {request.UserId} is already a member of this project.");
 
-        var member = new ProjectMember
+        var member = await members.AddAsync(new ProjectMember
         {
             ProjectId = projectId,
             UserId    = request.UserId,
             Role      = request.Role
-        };
-
-        db.ProjectMembers.Add(member);
-        await db.SaveChangesAsync(ct);
+        }, ct);
 
         var response = new Response(member.UserId, member.Role, member.CreatedAt);
 
         if (idempotencyKey is not null)
-            await idempotency.CacheResponseAsync(idempotencyKey, response, ct);
+            await idempotency.CacheResponseAsync(user.Id, idempotencyKey, response, ct);
 
         return Results.Created($"/api/v1/projects/{projectId}/members/{member.UserId}", response);
     }

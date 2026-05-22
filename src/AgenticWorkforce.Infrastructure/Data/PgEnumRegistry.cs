@@ -37,6 +37,7 @@ public static class PgEnumRegistry
         (typeof(FailureTier),              "failure_tier"),
         (typeof(LearningKind),             "learning_kind"),
         (typeof(LearningStatus),           "learning_status"),
+        (typeof(PromotionStatus),          "promotion_status"),
         (typeof(DecisionStatus),           "decision_status"),
         (typeof(ContentFormat),            "content_format"),
         (typeof(ArtifactType),             "artifact_type"),

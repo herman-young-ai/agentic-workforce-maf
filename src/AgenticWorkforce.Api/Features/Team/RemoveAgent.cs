@@ -1,8 +1,7 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 
 namespace AgenticWorkforce.Api.Features.Team;
 
@@ -19,18 +18,18 @@ public static class RemoveAgent
         Guid memberId,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        IProjectAgentRepository projectAgents,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Owner, ct);
 
-        var agent = await db.ProjectAgents
-            .FirstOrDefaultAsync(a => a.Id == memberId && a.ProjectId == projectId, ct)
-            ?? throw new NotFoundException("ProjectAgent", memberId);
+        var agent = await projectAgents.GetByIdAsync(memberId, ct);
+        if (agent is null || agent.ProjectId != projectId)
+            throw new NotFoundException("ProjectAgent", memberId);
 
-        db.ProjectAgents.Remove(agent);
-        await db.SaveChangesAsync(ct);
+        if (!await projectAgents.RemoveAsync(memberId, ct))
+            throw new NotFoundException("ProjectAgent", memberId);
 
         return Results.NoContent();
     }

@@ -2,7 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Projects;
@@ -39,7 +38,6 @@ public static class UpdateProject
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IProjectRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -71,7 +69,7 @@ public static class UpdateProject
         if (request.BudgetCeilingUsd is not null) project.BudgetCeilingUsd = request.BudgetCeilingUsd;
         if (request.Jurisdiction is not null) project.Jurisdiction = request.Jurisdiction;
 
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(project, ct);
 
         return Results.Ok(new Response(
             project.Id, project.Name, project.Objective, project.Description,

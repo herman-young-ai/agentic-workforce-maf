@@ -1,8 +1,8 @@
 # Phase 4: API Vertical Slices (Extended)
 
 **Status:** Not Started
-**Depends On:** Phase 3 (API Core)
-**Verification:** `dotnet test AgenticWorkforce.slnx` passes, Swagger shows all endpoints, auth policies enforced
+**Depends On:** Phase 3.5 (Boundary Remediation)
+**Verification:** `dotnet test AgenticWorkforce.slnx` passes, Swagger shows all endpoints, auth policies enforced, `scripts/check-rules.sh` passes DL-001.
 
 ---
 
@@ -10,17 +10,56 @@
 
 Complete the checklist in [000-phase-overview.md § Pre-flight for every phase](000-phase-overview.md#pre-flight-for-every-phase):
 
-1. Read `.codemap/map.md` — type/method inventory from the previous phase. Do not recreate anything already present.
+1. Read `.codemap/map.md` — type/method inventory from Phase 3.5. Do not recreate anything already present.
 2. Read `.codemap/quality.md` — current CQI baseline. Work must not regress the score.
-3. Verify the previous phase's exit criteria still hold:
+3. Verify Phase 3.5's exit criteria still hold:
    - `dotnet build AgenticWorkforce.slnx` exits 0
    - `dotnet test AgenticWorkforce.slnx` exits 0
+   - `grep -rn 'AppDbContext' src/AgenticWorkforce.Api/ --include='*.cs' | grep -v 'Program.cs' | grep -v 'HealthCheck'` returns zero
+   - `WorkflowRun.TriggeredById` and `ProjectLearning.PromotionStatus` exist in the schema
+4. Check `.githooks/pre-commit` for the active CQI floor and confirm it is consistent with the current score.
+5. Confirm `IIdempotencyService` is user-scoped (takes `Guid userId` as a parameter) — Phase 3.5 changed the signature.
+
+---
+
+## Architecture Pattern (post-Phase-3.5)
+
+Every endpoint follows the vertical-slice file shape **but never injects `AppDbContext`**. All persistence flows through repositories defined in `AgenticWorkforce.Domain.Interfaces.Repositories.*` and implemented in `AgenticWorkforce.Infrastructure.Repositories.*`.
+
+```csharp
+public static class ListLearnings
+{
+    public record Response(/* ... */);
+
+    public static void MapEndpoints(IEndpointRouteBuilder app) =>
+        app.MapGet("/api/v1/projects/{projectId:guid}/learnings", HandleAsync)
+            .RequireAuthorization(Policies.RequireViewer)
+            .WithTags("Learnings");
+
+    private static async Task<IResult> HandleAsync(
+        Guid projectId,
+        [AsParameters] PagedQuery paging,
+        ICurrentUserAccessor userAccessor,
+        IProjectAuthorizationService authz,
+        ILearningRepository learnings,           // never AppDbContext
+        CancellationToken ct)
+    {
+        await authz.EnsureRoleAsync(userAccessor.User.Id, projectId, ProjectRole.Viewer, ct);
+        var page = await learnings.ListByProjectPagedAsync(projectId, paging, ct);
+        return Results.Ok(page);
+    }
+}
+```
+
+This pattern is non-negotiable — see Phase 3.5 §Why This Phase Exists.
 
 ---
 
 ## Objective
 
-Implement the remaining API endpoints that support workflows, knowledge management, documents, events, costs, catalog browsing, executions, and admin operations. After this phase the API surface is complete — every endpoint defined in `docs/002-architecture/004-api-design.md` exists and returns correct responses.
+Implement the remaining API endpoints — workflows, knowledge management, documents, events, costs, catalog browsing, executions, and admin operations. After this phase the API surface is complete: every endpoint defined in [docs/002-architecture/004-api-design.md](../002-architecture/004-api-design.md) exists and returns correct responses.
+
+**Authoritative endpoint spec:** Where this plan's tables and [004-api-design.md](../002-architecture/004-api-design.md) disagree on path, method, or auth policy, **004-api-design.md wins**. Cross-check before implementing each section.
 
 ---
 
@@ -77,7 +116,9 @@ public record RespondRequest(HumanDecisionType Decision, string? Response);
 // external event to resume the paused workflow orchestration.
 ```
 
-Segregation of duties: the responder MUST NOT be the user who triggered the request (`triggered_by != approved_by`). Enforced in handler — returns 403 if violated.
+**Segregation of duties:** the responder MUST NOT be the user who triggered the request. Enforced via the new `WorkflowRun.TriggeredById Guid?` FK added in Phase 3.5: the handler resolves the request's `WorkflowRun`, compares `workflowRun.TriggeredById == currentUser.Id`, and returns **403** if equal. The string-typed `WorkflowRun.TriggeredBy` field is **not** used for this comparison.
+
+If `WorkflowRun.TriggeredById` is null (schedule-triggered runs with no owning user), SOD is vacuously satisfied — any Reviewer+ may approve.
 
 ### 4.5 Project Context — PCD (`/api/v1/projects/{projectId}/context`)
 
@@ -102,6 +143,8 @@ Segregation of duties: the responder MUST NOT be the user who triggered the requ
 | `PromoteLearning.cs` | POST | `/{learningId}/promote` | Operator+ |
 | `SearchLearnings.cs` | POST | `/search` | Viewer+ |
 | `FindSimilar.cs` | GET | `/{learningId}/similar` | Viewer+ |
+
+**`PromoteLearning.cs`** transitions `ProjectLearning.PromotionStatus` from `None` → `PendingApproval`. Records `PromotionRequestedAt = DateTime.UtcNow` and `PromotionRequestedById = currentUser.Id`. The actual `Approved` transition happens in §4.18 `ApprovePromotion` (PlatformAdmin).
 
 ### 4.7 Milestones (`/api/v1/projects/{projectId}/milestones`)
 
@@ -147,6 +190,8 @@ Segregation of duties: the responder MUST NOT be the user who triggered the requ
 | `RetractDocument.cs` | POST | `/{documentId}/retract` | Owner |
 | `SearchDocuments.cs` | POST | `/search` | Viewer+ |
 
+`UploadDocument.cs` accepts `multipart/form-data`. Kestrel `MaxRequestBodySize` raised to 50 MB on this endpoint only (per Principle 19, API max upload bound). Endpoint maps with `.DisableAntiforgery()`.
+
 ### 4.12 Events / Console (`/api/v1/projects/{projectId}/events`)
 
 | File | Method | Path | Auth |
@@ -163,6 +208,10 @@ Note: SSE streaming endpoints (`/stream`) are Phase 5.
 | `GetCostTimeline.cs` | GET | `/timeline` | Viewer+ |
 | `GetTokenEconomics.cs` | GET | `/token-economics` | Viewer+ |
 
+**Partition-aware queries required.** `LlmCall` is RANGE-partitioned by month (per [ADR-008](../002-architecture/ADR-008-audit-compliance.md) and migration `20260517071100_CreatePartitionedTables`). All three endpoints accept `from`/`to` query parameters (default: last 30 days) and require the underlying queries to filter on `created_at` so PostgreSQL prunes partitions. Without partition pruning, a 6-month sweep scans every partition.
+
+`ICostQueryService` must enforce: (a) `from`/`to` are required at the repository call site (no default-to-all-time path), (b) max range is configurable but defaults to 365 days, (c) the `(project_id, created_at)` composite index is verified by an integration test. Add migration `AddLlmCallProjectCreatedAtIndex` if the index is missing.
+
 ### 4.14 Executions (`/api/v1/projects/{projectId}/executions`)
 
 | File | Method | Path | Auth |
@@ -171,7 +220,9 @@ Note: SSE streaming endpoints (`/stream`) are Phase 5.
 | `RunAdHoc.cs` | POST | `/run` | Operator+ |
 | `GetExecution.cs` | GET | `/{executionId}` | Viewer+ |
 
-Note: `DispatchTasks` and `RunAdHoc` create records and enqueue to Redis. Actual execution is Phase 6+.
+**Api responsibility (this phase):** create the execution intent record, mark approved tasks as `Queued`, **enqueue a dispatch message to the Redis Stream**, and return the queue message ID as `executionId`. The Api **does NOT** create the `WorkflowRun` row — Worker creates it when it picks up the queue message (Phase 8). This preserves Principle 16 (single source of truth) — `WorkflowRun` has one writer.
+
+`GetExecution.cs` returns the current state by querying the Redis Stream consumer-group position (Phase 4 stub: returns `Pending` always) and any matching `WorkflowRun` row if Worker has already consumed it. Phase 8 wires the real consumer.
 
 ### 4.15 Catalog — Browse (`/api/v1/catalog`)
 
@@ -179,6 +230,8 @@ Note: `DispatchTasks` and `RunAdHoc` create records and enqueue to Redis. Actual
 |------|--------|------|------|
 | `ListCatalog.cs` | GET | `/` | Member |
 | `GetCatalogAgent.cs` | GET | `/{agentId}` | Member |
+
+These are **read-only browse endpoints** scoped to all authenticated users for catalog discovery. Filters `Visibility != Private` and `Enabled = true`. Uses `IAgentCatalogRepository` from Phase 3.5.
 
 ### 4.16 Admin: Dashboard (`/api/v1/admin/dashboard`)
 
@@ -188,6 +241,8 @@ Note: `DispatchTasks` and `RunAdHoc` create records and enqueue to Redis. Actual
 | `GetOverview.cs` | GET | `/overview` | PlatformAdmin |
 | `GetAdminCosts.cs` | GET | `/costs` | PlatformAdmin |
 | `GetAdminCostTimeline.cs` | GET | `/costs/timeline` | PlatformAdmin |
+
+`GetAdminCosts` and `GetAdminCostTimeline` apply the same partition-aware constraints as §4.13 but cross-project.
 
 ### 4.17 Admin: Agent Catalog (`/api/v1/admin/catalog`)
 
@@ -204,83 +259,86 @@ Note: `DispatchTasks` and `RunAdHoc` create records and enqueue to Redis. Actual
 | `AdminDisableAgent.cs` | POST | `/{agentId}/disable` | PlatformAdmin |
 | `AdminSeedCatalog.cs` | POST | `/seed` | PlatformAdmin |
 
+**`AdminSeedCatalog` is the platform-level catalog seeder** — it seeds the global `AgentCatalog` table from a known YAML set (Phase 7 produces the YAML files). Distinct from the existing project-scoped [`Team/SeedTeam.cs`](../../src/AgenticWorkforce.Api/Features/Team/SeedTeam.cs) which seeds a specific project's `ProjectAgent` rows from a template. Both endpoints exist; they operate at different scopes (catalog vs project).
+
+For Phase 4, `AdminSeedCatalog` is a stub: returns `501 Not Implemented` with `code: CATALOG_SEED_NOT_READY`, body documenting that catalog YAML lands in Phase 7. The endpoint exists so admin tooling and tests can target it; the actual seeding implementation moves with Phase 7.
+
 ### 4.18 Admin: Platform Knowledge (`/api/v1/admin/knowledge`)
 
 | File | Method | Path | Auth |
 |------|--------|------|------|
 | `ListPlatformLearnings.cs` | GET | `/learnings` | PlatformAdmin |
 | `ListPendingPromotions.cs` | GET | `/promotions/pending` | PlatformAdmin |
-| `ApprovePromotion.cs` | POST | `/promotions/{promotionId}/approve` | PlatformAdmin |
-| `RejectPromotion.cs` | POST | `/promotions/{promotionId}/reject` | PlatformAdmin |
+| `ApprovePromotion.cs` | POST | `/learnings/{learningId}/approve-promotion` | PlatformAdmin |
+| `RejectPromotion.cs` | POST | `/learnings/{learningId}/reject-promotion` | PlatformAdmin |
 | `EditPlatformLearning.cs` | PATCH | `/learnings/{learningId}` | PlatformAdmin |
 | `RetractPlatformLearning.cs` | POST | `/learnings/{learningId}/retract` | PlatformAdmin |
+
+**Promotion approval state machine** (using the `PromotionStatus` enum added in Phase 3.5):
+
+- `PromoteLearning` (§4.6, Operator+): `None` → `PendingApproval` ; sets `PromotionRequestedAt`, `PromotionRequestedById`
+- `ListPendingPromotions`: lists learnings with `PromotionStatus == PendingApproval`, ordered by `PromotionRequestedAt`
+- `ApprovePromotion`: `PendingApproval` → `Approved` ; sets `PromotedBy = currentUser.Id`, `PromotedAt = DateTime.UtcNow`
+- `RejectPromotion`: `PendingApproval` → `Rejected` ; sets `PromotionRejectedReason` from body
+- `RetractPlatformLearning`: `Approved` → `None` (or `LearningStatus.Retracted` if removing the learning itself)
+
+Endpoint URL convention: `learningId` in the path identifies the learning being promoted. The plan's earlier `promotionId` terminology was wrong — there is no separate Promotion entity; the state lives on `ProjectLearning`.
 
 ---
 
 ## Supporting Infrastructure
 
-### Additional Repository Methods
+### New repository interfaces
 
-Some endpoints need query capabilities not yet in repositories:
+All in `AgenticWorkforce.Domain.Interfaces.Repositories`. Implementations in `AgenticWorkforce.Infrastructure.Repositories`.
 
-```csharp
-// IWorkflowRepository (extend from Phase 2)
-Task<WorkflowDefinition?> GetByIdAsync(Guid id, CancellationToken ct);
-Task<IReadOnlyList<WorkflowDefinition>> ListByProjectAsync(Guid projectId, CancellationToken ct);
-Task<WorkflowDefinition> CreateAsync(WorkflowDefinition def, CancellationToken ct);
-Task<WorkflowDefinition> UpdateAsync(WorkflowDefinition def, CancellationToken ct);
-Task<IReadOnlyList<WorkflowRun>> ListRunsAsync(Guid projectId, Guid? workflowId, CancellationToken ct);
-Task<WorkflowRun?> GetRunByIdAsync(Guid runId, CancellationToken ct);
-Task<IReadOnlyList<WorkflowSchedule>> ListSchedulesAsync(Guid projectId, CancellationToken ct);
-Task<IReadOnlyList<HumanInputRequest>> ListPendingInputsAsync(Guid projectId, CancellationToken ct);
-```
+| Interface | DbSets | Notes |
+|---|---|---|
+| `IWorkflowDefinitionRepository` | `WorkflowDefinitions` | `GetByIdAsync`, `ListByProjectPagedAsync`, `AddAsync`, `UpdateAsync`, `DeleteAsync` (soft via `LockedAt`) |
+| `IWorkflowRunRepository` | `WorkflowRuns` | `GetByIdAsync`, `ListByProjectPagedAsync(projectId, workflowId? filter)` — write methods deferred to Phase 8 (Worker owns writes) |
+| `IWorkflowScheduleRepository` | `WorkflowSchedules` | `GetByIdAsync`, `ListByProjectAsync`, `ListUpcomingAsync(projectId, DateTime horizon)`, `AddAsync`, `UpdateAsync`, `RemoveAsync` |
+| `IHumanInputRepository` | `HumanInputRequests` | `GetByIdAsync`, `ListPendingByProjectAsync`, `RespondAsync(requestId, decision, response, responderId)` — single transaction with SOD enforcement |
+| `IProjectContextRepository` | `ProjectContexts`, `ContextChanges` | `GetAsync(projectId)`, `GetHistoryAsync(projectId)`, `AddPrincipleAsync`, `AddGuardrailAsync`, `RemovePrincipleAsync`, `RemoveGuardrailAsync` — versioned writes |
+| `ILearningRepository` | `ProjectLearnings` | `GetByIdAsync`, `ListByProjectPagedAsync`, `AddAsync`, `UpdateAsync`, `RetractAsync`, `SupersedeAsync`, `RequestPromotionAsync`, `ApprovePromotionAsync`, `RejectPromotionAsync`, `ListPendingPromotionsPagedAsync`, `SearchByEmbeddingAsync(Vector, limit, ct)`, `FindSimilarAsync(learningId, limit, ct)` |
+| `IMilestoneRepository` | `MilestoneSummaries`, `ContextMilestones` | `GetByIdAsync`, `ListByProjectPagedAsync`, `AddAsync` |
+| `IDecisionRepository` | `ProjectDecisions` | `GetByIdAsync`, `ListByProjectPagedAsync`, `AddAsync` |
+| `IIntentRepository` | `ProjectIntents` | `GetCurrentAsync(projectId)`, `GetHistoryAsync(projectId)`, `AddAsync` |
+| `IArtifactRepository` | `ProjectArtifacts` | `GetByIdAsync`, `ListByProjectPagedAsync`, `GetContentAsync`, `RetractAsync` |
+| `IDocumentRepository` | `ProjectDocuments`, `DocumentChunks` | `GetByIdAsync`, `ListByProjectPagedAsync`, `AddAsync`, `RetractAsync`, `SearchChunksAsync(projectId, Vector queryEmbedding, int limit, ct)` (signature uses `Pgvector.Vector`, not `float[]`) |
+| `IEventRepository` | `ProjectEvents` | `ListByProjectPagedAsync(projectId, EventFilter filter, paging, ct)` |
+| `ICatalogQueryRepository` | `AgentCatalogs` | Read-only browse view: `ListVisibleAsync(memberRole, paging)`, `GetByIdVisibleAsync(memberRole, id)` — applies `Visibility` filter for non-admin readers (Admin uses `IAgentCatalogRepository` from Phase 3.5 directly) |
+| `IExecutionRepository` | (Redis Stream client) | `EnqueueDispatchAsync(projectId, taskIds, requesterId)`, `EnqueueAdHocAsync(...)`, `GetStatusAsync(executionId)` — wraps `Redis Streams XADD/XREAD`; implementation is a thin client this phase, Phase 8 adds the consumer side |
 
-Note: Knowledge, decision, milestone, and artifact queries are simple reads — vertical-slice endpoints use `AppDbContext` directly (no repository abstraction needed for read-only paginated queries).
-
-```csharp
-// IDocumentRepository (new)
-public interface IDocumentRepository
-{
-    Task<ProjectDocument> UploadAsync(ProjectDocument doc, CancellationToken ct);
-    Task<IReadOnlyList<ProjectDocument>> ListAsync(Guid projectId, CancellationToken ct);
-    Task<ProjectDocument?> GetByIdAsync(Guid id, CancellationToken ct);
-    Task<IReadOnlyList<DocumentChunk>> SearchChunksAsync(Guid projectId, float[] queryEmbedding, int limit, CancellationToken ct);
-}
-```
+### New service interfaces
 
 ```csharp
-// ICostQueryService (new — read-only aggregation)
-public interface ICostQueryService
-{
-    Task<CostSummary> GetSummaryAsync(Guid projectId, CancellationToken ct);
-    Task<IReadOnlyList<CostTimelineEntry>> GetTimelineAsync(Guid projectId, DateTime from, DateTime to, CancellationToken ct);
-    Task<TokenEconomics> GetTokenEconomicsAsync(Guid projectId, CancellationToken ct);
-}
-
-public record CostSummary(decimal TotalUsd, IReadOnlyList<AgentCostBreakdown> ByAgent, IReadOnlyList<ModelCostBreakdown> ByModel);
-public record CostTimelineEntry(DateTime Hour, decimal CostUsd, int Calls);
-public record TokenEconomics(long TotalInput, long TotalOutput, long CacheRead, long CacheCreation, double CacheHitRate);
-```
-
-### PCD Service
-
-The PCD (Project Context Document) is a JSON blob with structured paths. Operations on it need a service:
-
-```csharp
+// IProjectContextService — PCD JSON mutations with versioned history
 public interface IProjectContextService
 {
     Task<ProjectContext> GetAsync(Guid projectId, CancellationToken ct);
     Task<IReadOnlyList<ContextChange>> GetHistoryAsync(Guid projectId, CancellationToken ct);
-    Task AddPrincipleAsync(Guid projectId, string principle, string addedBy, CancellationToken ct);
-    Task AddGuardrailAsync(Guid projectId, string guardrail, string addedBy, CancellationToken ct);
-    Task RemovePrincipleAsync(Guid projectId, string principleId, CancellationToken ct);
-    Task RemoveGuardrailAsync(Guid projectId, string guardrailId, CancellationToken ct);
+    Task AddPrincipleAsync(Guid projectId, string principle, Guid addedById, CancellationToken ct);
+    Task AddGuardrailAsync(Guid projectId, string guardrail, Guid addedById, CancellationToken ct);
+    Task RemovePrincipleAsync(Guid projectId, string principleId, Guid removedById, CancellationToken ct);
+    Task RemoveGuardrailAsync(Guid projectId, string guardrailId, Guid removedById, CancellationToken ct);
 }
-```
 
-### Workflow Graph Validation
+// ICostQueryService — partition-aware aggregations over LlmCall
+public interface ICostQueryService
+{
+    Task<CostSummary> GetSummaryAsync(Guid projectId, DateTime from, DateTime to, CancellationToken ct);
+    Task<IReadOnlyList<CostTimelineEntry>> GetTimelineAsync(Guid projectId, DateTime from, DateTime to, CancellationToken ct);
+    Task<TokenEconomics> GetTokenEconomicsAsync(Guid projectId, DateTime from, DateTime to, CancellationToken ct);
+}
 
-```csharp
+public record CostSummary(
+    decimal TotalUsd,
+    IReadOnlyList<AgentCostBreakdown> ByAgent,
+    IReadOnlyList<ModelCostBreakdown> ByModel);
+public record CostTimelineEntry(DateTime Hour, decimal CostUsd, int Calls);
+public record TokenEconomics(long TotalInput, long TotalOutput, long CacheRead, long CacheCreation, double CacheHitRate);
+
+// IWorkflowValidator — graph integrity
 public interface IWorkflowValidator
 {
     ValidationResult Validate(string nodesJson, string edgesJson);
@@ -289,165 +347,185 @@ public interface IWorkflowValidator
 public record ValidationResult(bool IsValid, IReadOnlyList<string> Errors);
 ```
 
-Validates:
-- Exactly one Start node, at least one End node
-- All edges connect existing nodes
-- No orphan nodes (unreachable from Start)
-- Decision nodes have labeled outgoing edges
-- No cycles (DAG check)
+Validation enforces (each is a distinct test case):
+
+- Exactly one `Start` node
+- At least one `End` node
+- All edges reference existing node IDs (no dangling references)
+- No orphan nodes (every node reachable from `Start`)
+- `Decision` nodes (Human or AI) have outgoing edges with labeled conditions
+- No cycles (the graph is a DAG)
+
+### Pre-existing services (do NOT recreate — verify and adjust)
+
+These already exist in `src/AgenticWorkforce.Infrastructure/Services/`. Phase 4 work is to verify, adjust if needed, and wire into the new endpoints.
+
+#### `IDocumentStore` / `LocalFileDocumentStore`
+
+Already in [LocalFileDocumentStore.cs](../../src/AgenticWorkforce.Infrastructure/Services/LocalFileDocumentStore.cs). The interface is:
+
+```csharp
+Task<string> UploadAsync(string containerName, string path, Stream content, string contentType, CancellationToken ct);
+Task<Stream> DownloadAsync(string containerName, string path, CancellationToken ct);
+Task DeleteAsync(string containerName, string path, CancellationToken ct);
+Task<bool> ExistsAsync(string containerName, string path, CancellationToken ct);
+```
+
+Constructor takes `basePath` — bind it from `IOptions<DocumentStorageOptions>` rooted at `IHostEnvironment.ContentRootPath`. **Do not pass a hardcoded relative path** like `Path.Combine("var", "uploads")` — the existing impl already guards against path traversal and resolves via `Path.GetFullPath`. Phase 4 wires it through DI configuration only; no code changes to `LocalFileDocumentStore` itself.
+
+#### `IEmbeddingService` / `StubEmbeddingService` — **breaking change required**
+
+Already in [StubEmbeddingService.cs](../../src/AgenticWorkforce.Infrastructure/Services/StubEmbeddingService.cs). Current impl returns 1536 zeros — this **silently corrupts** pgvector cosine searches (zero-norm vectors give undefined distance; results become arbitrary). Per Principle 8 (Fail Fast), replace with:
+
+```csharp
+internal sealed class StubEmbeddingService : IEmbeddingService
+{
+    public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+        => throw new NotImplementedException(
+            "Embeddings are not configured. Wire AzureOpenAIEmbeddingService in Phase 6 " +
+            "(per ADR-002) before calling embedding-dependent endpoints.");
+
+    public Task<float[][]> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct = default)
+        => throw new NotImplementedException(/* same message */);
+}
+```
+
+**Phase 4 endpoints that depend on embeddings (`SearchLearnings`, `FindSimilar`, `SearchDocuments`)** must short-circuit at the endpoint with HTTP **503** when the resolved `IEmbeddingService` is `StubEmbeddingService`. Detection pattern:
+
+```csharp
+if (embeddings is StubEmbeddingService)
+    return Results.Problem(
+        statusCode: 503,
+        title: "Semantic search not yet available.",
+        detail: "Embedding provider is wired in Phase 6.",
+        extensions: new Dictionary<string, object?> { ["code"] = "EMBEDDING_NOT_CONFIGURED" });
+```
+
+This is preferable to a feature flag because the stub itself is the configuration signal. When `AzureOpenAIEmbeddingService` replaces it in Phase 6, all three endpoints become live without code changes here.
+
+The existing code comment in `StubEmbeddingService` says "wired up in Phase 6" — that is correct. The previous version of this plan referred to "Phase 11" — that was wrong; treat Phase 6 as canonical.
 
 ---
 
 ## File Summary
 
-### Files to CREATE: ~85 endpoint files + 6 service/repository files
+### Endpoint files to CREATE (~85)
 
 ```
-src/AgenticWorkforce.Api/Features/Workflows/ (9 files)
-src/AgenticWorkforce.Api/Features/WorkflowRuns/ (2 files)
-src/AgenticWorkforce.Api/Features/Schedules/ (5 files)
-src/AgenticWorkforce.Api/Features/HumanInput/ (3 files)
-src/AgenticWorkforce.Api/Features/Context/ (6 files)
-src/AgenticWorkforce.Api/Features/Learnings/ (8 files)
-src/AgenticWorkforce.Api/Features/Milestones/ (3 files)
-src/AgenticWorkforce.Api/Features/Decisions/ (3 files)
-src/AgenticWorkforce.Api/Features/Intent/ (3 files)
-src/AgenticWorkforce.Api/Features/Artifacts/ (4 files)
-src/AgenticWorkforce.Api/Features/Documents/ (6 files)
-src/AgenticWorkforce.Api/Features/Events/ (1 file)
-src/AgenticWorkforce.Api/Features/Costs/ (3 files)
-src/AgenticWorkforce.Api/Features/Executions/ (3 files)
-src/AgenticWorkforce.Api/Features/Catalog/ (2 files)
-src/AgenticWorkforce.Api/Features/Admin/Dashboard/ (4 files)
-src/AgenticWorkforce.Api/Features/Admin/Catalog/ (10 files)
-src/AgenticWorkforce.Api/Features/Admin/Knowledge/ (6 files)
+src/AgenticWorkforce.Api/Features/Workflows/        (9 files)
+src/AgenticWorkforce.Api/Features/WorkflowRuns/     (2 files)
+src/AgenticWorkforce.Api/Features/Schedules/        (5 files)
+src/AgenticWorkforce.Api/Features/HumanInput/       (3 files)
+src/AgenticWorkforce.Api/Features/Context/          (6 files)
+src/AgenticWorkforce.Api/Features/Learnings/        (8 files)
+src/AgenticWorkforce.Api/Features/Milestones/       (3 files)
+src/AgenticWorkforce.Api/Features/Decisions/        (3 files)
+src/AgenticWorkforce.Api/Features/Intent/           (3 files)
+src/AgenticWorkforce.Api/Features/Artifacts/        (4 files)
+src/AgenticWorkforce.Api/Features/Documents/        (6 files)
+src/AgenticWorkforce.Api/Features/Events/           (1 file)
+src/AgenticWorkforce.Api/Features/Costs/            (3 files)
+src/AgenticWorkforce.Api/Features/Executions/       (3 files)
+src/AgenticWorkforce.Api/Features/Catalog/          (2 files)
+src/AgenticWorkforce.Api/Features/Admin/Dashboard/  (4 files)
+src/AgenticWorkforce.Api/Features/Admin/Catalog/    (10 files)
+src/AgenticWorkforce.Api/Features/Admin/Knowledge/  (6 files)
+```
+
+### Domain interfaces to CREATE (13)
+
+```
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IWorkflowDefinitionRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IWorkflowRunRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IWorkflowScheduleRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IHumanInputRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IProjectContextRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/ILearningRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IMilestoneRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IDecisionRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IIntentRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IArtifactRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IDocumentRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IEventRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/ICatalogQueryRepository.cs
+src/AgenticWorkforce.Domain/Interfaces/Repositories/IExecutionRepository.cs
 src/AgenticWorkforce.Domain/Interfaces/Services/IProjectContextService.cs
 src/AgenticWorkforce.Domain/Interfaces/Services/ICostQueryService.cs
 src/AgenticWorkforce.Domain/Interfaces/Services/IWorkflowValidator.cs
-src/AgenticWorkforce.Domain/Interfaces/Repositories/IDocumentRepository.cs
-src/AgenticWorkforce.Infrastructure/Repositories/DocumentRepository.cs
-src/AgenticWorkforce.Infrastructure/Services/ProjectContextService.cs
-src/AgenticWorkforce.Infrastructure/Services/CostQueryService.cs
-src/AgenticWorkforce.Infrastructure/Services/WorkflowValidator.cs
-tests/AgenticWorkforce.Api.Tests.Integration/Features/Workflows/WorkflowCrudTests.cs
-tests/AgenticWorkforce.Api.Tests.Integration/Features/Admin/AdminAuthorizationTests.cs
 ```
+
+### Infrastructure implementations to CREATE (17)
+
+One implementation per interface above, all in `src/AgenticWorkforce.Infrastructure/Repositories/` or `src/AgenticWorkforce.Infrastructure/Services/`.
+
+### Files to MODIFY
+
+- `src/AgenticWorkforce.Infrastructure/Services/StubEmbeddingService.cs` — replace zero-vector returns with `NotImplementedException` (see §Pre-existing services)
+- `src/AgenticWorkforce.Infrastructure/DependencyInjection.cs` — register new repositories and services
+- `src/AgenticWorkforce.Api/Program.cs` — wire `IDocumentStore` with `IOptions<DocumentStorageOptions>` from `appsettings.json`; add 50 MB body size override on the upload endpoint
+- `src/AgenticWorkforce.Api/Core/Extensions/EndpointRegistrationExtensions.cs` — add `MapWorkflowEndpoints`, `MapWorkflowRunEndpoints`, `MapScheduleEndpoints`, `MapHumanInputEndpoints`, `MapContextEndpoints`, `MapLearningEndpoints`, `MapMilestoneEndpoints`, `MapDecisionEndpoints`, `MapIntentEndpoints`, `MapArtifactEndpoints`, `MapDocumentEndpoints`, `MapEventEndpoints`, `MapCostEndpoints`, `MapExecutionEndpoints`, `MapCatalogEndpoints`, `MapAdminDashboardEndpoints`, `MapAdminCatalogEndpoints`, `MapAdminKnowledgeEndpoints` (18 new registration methods)
+- `appsettings.Development.json` — add `DocumentStorage.BasePath` (default `var/uploads`), `CostQuery.MaxRangeDays` (default 365)
+
+### Migration to CREATE
+
+- `src/AgenticWorkforce.Infrastructure/Migrations/{Timestamp}_AddLlmCallProjectCreatedAtIndex.cs` — only if the composite index `(project_id, created_at)` is not already present from Phase 2
 
 ---
 
-## Key Implementation Notes
+## Test Coverage
 
-### Document Upload
+Phase 4 ships ~85 endpoint files. Two integration test files are not enough. Minimum coverage:
 
-`UploadDocument.cs` accepts `multipart/form-data`. Files are persisted via `IDocumentStore` (defined in Domain, implemented in Infrastructure).
+### Integration tests (`tests/AgenticWorkforce.Api.Tests.Integration/Features/`)
 
-**`IDocumentStore` is defined in Domain** (Phase 1 creates the interface):
+One file per feature folder — 18 files. Each must cover at minimum:
 
-```csharp
-// Already defined in Phase 1:
-// src/AgenticWorkforce.Domain/Interfaces/Services/IDocumentStore.cs
-public interface IDocumentStore
-{
-    Task<string> UploadAsync(Guid projectId, string fileName, Stream content, string contentType, CancellationToken ct);
-    Task<Stream> DownloadAsync(string storageUrl, CancellationToken ct);
-    Task DeleteAsync(string storageUrl, CancellationToken ct);
-}
-```
+- Happy-path read/write
+- 401 unauthenticated
+- 403 for each role below the endpoint's minimum
+- BOLA: cross-project access denied (request hits project X with membership in project Y → 403)
+- Idempotency replay for POST endpoints with `X-Idempotency-Key`
+- 404 for nonexistent resource ID
 
-**Phase 4 implements `LocalFileDocumentStore`** for dev (Azure Blob in Phase 11):
+### Specific safety tests
 
-```csharp
-// src/AgenticWorkforce.Infrastructure/Services/LocalFileDocumentStore.cs
-internal sealed class LocalFileDocumentStore(ILogger<LocalFileDocumentStore> logger) : IDocumentStore
-{
-    private static readonly string BasePath = Path.Combine("var", "uploads");
+- `tests/AgenticWorkforce.Api.Tests.Integration/Features/Learnings/EmbeddingStubGateTests.cs` — `SearchLearnings`, `FindSimilar`, `SearchDocuments` all return **503** with `code: EMBEDDING_NOT_CONFIGURED` when `StubEmbeddingService` is the registered impl; never return arbitrary results
+- `tests/AgenticWorkforce.Api.Tests.Integration/Features/Workflows/WorkflowValidatorTests.cs` — one rejection-cause assertion per rule (single Start, ≥1 End, dangling edges, orphans, missing decision labels, cycles)
+- `tests/AgenticWorkforce.Api.Tests.Integration/Features/HumanInput/SegregationOfDutiesTests.cs` — user who triggered run cannot Respond; user who is Reviewer+ and did not trigger CAN Respond; schedule-triggered runs (TriggeredById null) allow any Reviewer+
+- `tests/AgenticWorkforce.Api.Tests.Integration/Features/Documents/UploadSizeLimitTests.cs` — 50 MB upload succeeds, 51 MB returns 413 Payload Too Large
+- `tests/AgenticWorkforce.Api.Tests.Integration/Features/Costs/PartitionPruningTests.cs` — query plan inspection confirms partition pruning for date-bounded queries (use `EXPLAIN` and assert the partition list)
+- `tests/AgenticWorkforce.Api.Tests.Integration/Features/Admin/AdminAuthorizationTests.cs` — every admin endpoint returns 403 for non-admin users
 
-    public async Task<string> UploadAsync(Guid projectId, string fileName, Stream content, string contentType, CancellationToken ct)
-    {
-        var dir = Path.Combine(BasePath, projectId.ToString());
-        Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, $"{Guid.NewGuid()}_{fileName}");
-        await using var fs = File.Create(path);
-        await content.CopyToAsync(fs, ct);
-        logger.LogDebug("Stored document at {Path}", path);
-        return path; // storageUrl — becomes blob URI in production
-    }
-    // ... Download, Delete
-}
-```
+### Unit tests
 
-Endpoint:
+- `tests/AgenticWorkforce.Api.Tests.Unit/Workflows/WorkflowValidatorUnitTests.cs` — pure validator logic, no DB
+- `tests/AgenticWorkforce.Domain.Tests.Unit/Enums/PromotionStatusTransitionTests.cs` — verify the state machine: `None → PendingApproval → {Approved, Rejected}`; no invalid transitions accepted by `ILearningRepository`
 
-```csharp
-app.MapPost("/api/v1/projects/{projectId}/documents", HandleAsync)
-    .RequireAuthorization(Policies.RequireOperator)
-    .DisableAntiforgery()
-    .WithTags("Documents");
-```
-
-### Semantic Search (Learnings + Documents)
-
-`SearchLearnings.cs` and `SearchDocuments.cs` accept a query string, call an embedding service (stubbed in this phase — returns zero vector), and query pgvector.
-
-**`IEmbeddingService` is defined ONCE in Domain** (not duplicated in Api or Agents):
-
-```csharp
-// src/AgenticWorkforce.Domain/Interfaces/Services/IEmbeddingService.cs
-public interface IEmbeddingService
-{
-    Task<float[]> EmbedAsync(string text, CancellationToken ct = default);
-    Task<float[][]> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct = default);
-}
-```
-
-**Single stub in Infrastructure** (used by both Api endpoints AND Agents context assembly in Phase 6):
-
-```csharp
-// src/AgenticWorkforce.Infrastructure/Services/StubEmbeddingService.cs
-internal sealed class StubEmbeddingService : IEmbeddingService
-{
-    public Task<float[]> EmbedAsync(string text, CancellationToken ct)
-        => Task.FromResult(new float[1536]);
-
-    public Task<float[][]> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct)
-        => Task.FromResult(texts.Select(_ => new float[1536]).ToArray());
-}
-```
-
-Registered once in `InfrastructureServiceExtensions.AddInfrastructure()`. Phase 6's context assembly and Phase 4's search endpoints both resolve the same `IEmbeddingService` from DI. When Azure OpenAI embeddings are connected (Phase 11), only the single implementation is swapped.
-
-### DispatchTasks / RunAdHoc (Stub)
-
-These endpoints create the execution record and enqueue to Redis Stream. The actual worker pickup happens in Phase 8. For now:
-
-```csharp
-// DispatchTasks.cs
-// 1. Get all approved tasks for the project
-// 2. Transition them to Queued
-// 3. Create a WorkflowRun record
-// 4. Publish event (stub — Phase 5 adds real pub/sub)
-// 5. Return the run ID
-```
+Total: **24 test files** (18 feature × 1 + 6 specific safety).
 
 ---
 
 ## Verification Criteria
 
 1. `dotnet build AgenticWorkforce.slnx` exits 0
-2. `dotnet test AgenticWorkforce.slnx` — all tests pass
-3. Swagger UI shows all ~120 endpoints grouped by tags
-4. Admin endpoints return 403 for non-admin users
-5. PCD endpoints correctly mutate and version the JSON context
-6. Workflow validation catches invalid graphs (no start node, cycles, orphans)
-7. Document upload accepts multipart and stores metadata
-8. Cost endpoints aggregate from LlmCall table correctly
-9. All endpoints follow vertical-slice pattern
-10. No circular dependencies between feature folders
+2. `dotnet test AgenticWorkforce.slnx` exits 0 — all 24 new test files pass; all Phase 3 + Phase 3.5 tests still pass
+3. Swagger UI shows all endpoints from §§4.1-4.18 grouped by tag
+4. `grep -rn 'AppDbContext' src/AgenticWorkforce.Api/ --include='*.cs' | grep -v 'Program.cs' | grep -v 'HealthCheck'` returns **zero results** (Phase 3.5 invariant preserved)
+5. `scripts/check-rules.sh` passes DL-001, DL-002, MB-001 through MB-005
+6. CQI score does not regress below the active floor; ideally improves (Reusability dimension should rise as repositories are added)
+7. Admin endpoints return 403 for non-admin users
+8. PCD endpoints correctly mutate the JSON context and version the change history
+9. Workflow validation rejects each invalid graph cause distinctly (no merging into a generic "invalid graph" error)
+10. Document upload accepts multipart up to 50 MB and stores metadata + content via `IDocumentStore`
+11. Cost endpoints reject queries with no `from`/`to` and queries spanning more than `CostQuery.MaxRangeDays`
+12. `SearchLearnings`, `FindSimilar`, `SearchDocuments` return 503 when `StubEmbeddingService` is registered (no silent zero-vector results)
+13. SOD test confirms the user who triggered a workflow run cannot approve its human input requests
+14. Promotion state machine: a learning can move `None → PendingApproval → {Approved, Rejected}` and **not** transition by any other path
 
 ---
 
 ## Goal Command
 
 ```
-/goal Extended API slices complete: Workflows (9), WorkflowRuns (2), Schedules (5), HumanInput (3), Context/PCD (6), Learnings (8), Milestones (3), Decisions (3), Intent (3), Artifacts (4), Documents (6), Events (1), Costs (3), Executions (3), Catalog (2), Admin Dashboard (4), Admin Catalog (10), Admin Knowledge (6). All use vertical-slice minimal API pattern with proper auth policies. Workflow validator checks graph integrity. PCD service manages JSON mutations with versioned history. Verify: dotnet build exits 0, dotnet test exits 0, Swagger shows all endpoints. Stop after 50 turns.
+/goal Phase 4 extended API slices complete: Workflows (9), WorkflowRuns (2), Schedules (5), HumanInput (3) with SOD via WorkflowRun.TriggeredById, Context/PCD (6), Learnings (8) with PromotionStatus state machine, Milestones (3), Decisions (3), Intent (3), Artifacts (4), Documents (6) with 50 MB upload limit and IDocumentStore wiring, Events (1), Costs (3) partition-aware with required date range, Executions (3) with Api as enqueuer-only (Worker owns WorkflowRun writes), Catalog (2), Admin Dashboard (4), Admin Catalog (10) with AdminSeedCatalog as 501 stub until Phase 7, Admin Knowledge (6) with promotion approval gates. All endpoints use repositories — zero AppDbContext injection in Features/. Workflow validator enforces six distinct rejection causes. StubEmbeddingService throws NotImplementedException; embedding-dependent endpoints return 503 with EMBEDDING_NOT_CONFIGURED. 18 integration test files (one per feature folder) plus 6 specific safety tests plus 2 unit test files. Verify: dotnet build + test exit 0, Swagger shows all endpoints, DL-001 grep returns zero, partition pruning verified via EXPLAIN, SOD test confirms triggered != approved. Stop after 70 turns.
 ```

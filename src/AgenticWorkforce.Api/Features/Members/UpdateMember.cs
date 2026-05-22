@@ -1,9 +1,8 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Members;
 
@@ -23,14 +22,13 @@ public static class UpdateMember
         [FromBody] Request request,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        IProjectMemberRepository members,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Owner, ct);
 
-        var member = await db.ProjectMembers
-            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == userId, ct)
+        var member = await members.GetMembershipAsync(userId, projectId, ct)
             ?? throw new NotFoundException("Member", userId);
 
         // Cannot change the role of the owner without using TransferOwnership
@@ -41,7 +39,7 @@ public static class UpdateMember
             throw new BusinessRuleException("Use the transfer-ownership endpoint to assign a new owner.");
 
         member.Role = request.Role;
-        await db.SaveChangesAsync(ct);
+        await members.UpdateAsync(member, ct);
 
         return Results.NoContent();
     }

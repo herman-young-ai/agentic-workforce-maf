@@ -2,8 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Projects;
 
@@ -27,6 +25,9 @@ public static class GetProject
         DateTime CreatedAt,
         DateTime UpdatedAt);
 
+    private static readonly TaskStatus[] ActiveTaskStatuses =
+        [TaskStatus.Approved, TaskStatus.Queued, TaskStatus.Running];
+
     public static void MapEndpoints(IEndpointRouteBuilder app) =>
         app.MapGet("/api/v1/projects/{projectId:guid}", HandleAsync)
             .RequireAuthorization(Policies.RequireViewer)
@@ -37,24 +38,18 @@ public static class GetProject
         Guid projectId,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        IProjectRepository repo,
-        AppDbContext db,
+        IProjectRepository projects,
+        ITaskRepository tasks,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Viewer, ct);
 
-        var project = await repo.GetByIdAsync(projectId, ct)
+        var project = await projects.GetByIdAsync(projectId, ct)
             ?? throw new NotFoundException("Project", projectId);
 
-        var totalTaskCount = await db.Tasks
-            .AsNoTracking()
-            .CountAsync(t => t.ProjectId == projectId, ct);
-
-        var activeTaskCount = await db.Tasks
-            .AsNoTracking()
-            .CountAsync(t => t.ProjectId == projectId &&
-                             (t.Status == TaskStatus.Approved || t.Status == TaskStatus.Queued || t.Status == TaskStatus.Running), ct);
+        var totalTaskCount = await tasks.CountByProjectAsync(projectId, statuses: null, ct);
+        var activeTaskCount = await tasks.CountByProjectAsync(projectId, ActiveTaskStatuses, ct);
 
         var members = project.Members
             .Select(m => new MemberSummary(m.UserId, m.Role))

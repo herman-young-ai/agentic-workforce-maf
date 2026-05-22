@@ -2,7 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Sessions;
@@ -24,7 +23,6 @@ public static class SuspendSession
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         ISessionRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -47,7 +45,7 @@ public static class SuspendSession
             ? $"Suspended: {request.Reason}"
             : $"{session.RollingSummary}\nSuspended: {request.Reason}";
 
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(session, ct);
 
         return Results.NoContent();
     }

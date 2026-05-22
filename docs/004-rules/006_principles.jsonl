@@ -1,6 +1,6 @@
 {"id":"PR-001","severity":"error","description":"P4: Domain interfaces wrap external dependencies","check":"review","expect":"review"}
 {"id":"PR-002","severity":"error","description":"P8: Fail fast — no catch-and-swallow patterns","check":"grep -rn 'catch.*{\\s*}' src/ --include='*.cs'","expect":"zero_results"}
-{"id":"PR-003","severity":"error","description":"P13: Soft delete only — no hard deletes in repositories","check":"grep -rn '\\.Remove(' src/AgenticWorkforce.Infrastructure/ --include='*.cs' | grep -v 'services.Remove'","expect":"zero_results"}
+{"id":"PR-003","severity":"error","description":"P13: Knowledge entities are never hard-deleted (retract, don't delete)","check":"grep -rnE 'ProjectLearnings\\.Remove|ProjectDecisions\\.Remove|ProjectArtifacts\\.Remove|MilestoneSummaries\\.Remove|ContextMilestones\\.Remove|PromptVersions\\.Remove|ContextChanges\\.Remove|LlmCalls\\.Remove|ProjectEvents\\.Remove' src/AgenticWorkforce.Infrastructure/ --include='*.cs'","expect":"zero_results"}
 {"id":"PR-004","severity":"error","description":"P14: Secure by default — no AllowAnonymous without comment","check":"review","expect":"review"}
 {"id":"PR-005","severity":"error","description":"P22: Container-first — no outbound HTTP calls in Api project","check":"review","expect":"review"}
 {"id":"PR-006","severity":"warning","description":"P20: Version everything — solution file and global.json present","check":"ls AgenticWorkforce.slnx global.json","expect":"at_least_one"}

@@ -1,9 +1,8 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
 
@@ -26,7 +25,7 @@ public static class BulkApproveTask
         [FromBody] Request request,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        ITaskRepository repo,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -35,35 +34,12 @@ public static class BulkApproveTask
         if (request.TaskIds.Count == 0)
             throw new ValidationException("At least one task ID is required.");
 
-        var tasks = await db.Tasks
-            .Where(t => t.ProjectId == projectId && request.TaskIds.Contains(t.Id))
-            .ToListAsync(ct);
+        var result = await repo.BulkApproveAsync(projectId, request.TaskIds, user.Id, ct);
 
-        var results = new List<ApprovalResult>();
+        var responseItems = result.Items
+            .Select(i => new ApprovalResult(i.TaskId, i.Approved, i.Reason))
+            .ToList();
 
-        foreach (var task in tasks)
-        {
-            if (task.Status != TaskStatus.Proposed)
-            {
-                results.Add(new ApprovalResult(task.Id, false, $"Task is not in Proposed status (current: {task.Status})."));
-                continue;
-            }
-
-            if (task.CreatedById.HasValue && task.CreatedById == user.Id)
-            {
-                results.Add(new ApprovalResult(task.Id, false, "Segregation of duties: creator cannot approve their own task."));
-                continue;
-            }
-
-            task.Status = TaskStatus.Approved;
-            results.Add(new ApprovalResult(task.Id, true, null));
-        }
-
-        foreach (var missingId in request.TaskIds.Except(tasks.Select(t => t.Id)))
-            results.Add(new ApprovalResult(missingId, false, "Task not found in this project."));
-
-        await db.SaveChangesAsync(ct);
-
-        return Results.Ok(new Response(results));
+        return Results.Ok(new Response(responseItems));
     }
 }

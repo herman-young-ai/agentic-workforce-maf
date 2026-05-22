@@ -1,7 +1,6 @@
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 
 namespace AgenticWorkforce.Api.Core.Auth;
 
@@ -12,35 +11,33 @@ public interface IProjectAuthorizationService
 }
 
 internal sealed class ProjectAuthorizationService(
-    AppDbContext db,
+    IProjectMemberRepository memberRepo,
     ICurrentUserAccessor currentUserAccessor) : IProjectAuthorizationService
 {
-    public async Task<bool> HasRoleAsync(Guid userId, Guid projectId, ProjectRole minimumRole, CancellationToken ct = default)
+    public async Task<bool> HasRoleAsync(
+        Guid userId,
+        Guid projectId,
+        ProjectRole minimumRole,
+        CancellationToken ct = default)
     {
         if (currentUserAccessor.User.IsInRole(Roles.PlatformAdmin))
             return true;
 
-        var member = await db.ProjectMembers
-            .AsNoTracking()
-            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == userId, ct);
+        var member = await memberRepo.GetMembershipAsync(userId, projectId, ct);
 
-        return member is not null && RoleRank(member.Role) >= RoleRank(minimumRole);
+        // Direct enum comparison works because ProjectRole values are ordered
+        // by seniority (Viewer=10, Operator=20, Reviewer=30, Owner=40). Phase 3.5
+        // renumbered the enum and deleted the previous RoleRank switch.
+        return member is not null && member.Role >= minimumRole;
     }
 
-    public async Task EnsureRoleAsync(Guid userId, Guid projectId, ProjectRole minimumRole, CancellationToken ct = default)
+    public async Task EnsureRoleAsync(
+        Guid userId,
+        Guid projectId,
+        ProjectRole minimumRole,
+        CancellationToken ct = default)
     {
         if (!await HasRoleAsync(userId, projectId, minimumRole, ct))
             throw new ForbiddenException($"User does not have {minimumRole} access to project {projectId}.");
     }
-
-    // Enum declaration order: Owner=0, Operator=1, Reviewer=2, Viewer=3
-    // Plan hierarchy (most → least): Owner > Reviewer > Operator > Viewer
-    internal static int RoleRank(ProjectRole role) => role switch
-    {
-        ProjectRole.Owner    => 4,
-        ProjectRole.Reviewer => 3,
-        ProjectRole.Operator => 2,
-        ProjectRole.Viewer   => 1,
-        _                    => 0
-    };
 }

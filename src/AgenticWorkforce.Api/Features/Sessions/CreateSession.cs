@@ -1,8 +1,7 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
-using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Sessions;
@@ -36,7 +35,7 @@ public static class CreateSession
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IIdempotencyService idempotency,
-        AppDbContext db,
+        ISessionRepository repo,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -44,28 +43,28 @@ public static class CreateSession
 
         if (idempotencyKey is not null)
         {
-            var cached = await idempotency.GetCachedResponseAsync<Response>(idempotencyKey, ct);
+            var cached = await idempotency.GetCachedResponseAsync<Response>(user.Id, idempotencyKey, ct);
             if (cached is not null)
                 return Results.Created($"/api/v1/projects/{projectId}/sessions/{cached.Id}", cached);
         }
 
         var session = new Session
         {
-            ProjectId    = projectId,
-            UserId       = user.Id,
-            Goal         = request.Goal,
-            AgentName    = request.AgentName,
+            ProjectId     = projectId,
+            UserId        = user.Id,
+            Goal          = request.Goal,
+            AgentName     = request.AgentName,
             CostBudgetUsd = request.CostBudgetUsd,
-            ExpiresAt    = request.ExpiresAt
+            ExpiresAt     = request.ExpiresAt
         };
 
-        db.Sessions.Add(session);
-        await db.SaveChangesAsync(ct);
+        await repo.AddAsync(session, ct);
 
-        var response = new Response(session.Id, session.ProjectId, session.Status, session.Goal, session.AgentName, session.CreatedAt);
+        var response = new Response(
+            session.Id, session.ProjectId, session.Status, session.Goal, session.AgentName, session.CreatedAt);
 
         if (idempotencyKey is not null)
-            await idempotency.CacheResponseAsync(idempotencyKey, response, ct);
+            await idempotency.CacheResponseAsync(user.Id, idempotencyKey, response, ct);
 
         return Results.Created($"/api/v1/projects/{projectId}/sessions/{session.Id}", response);
     }

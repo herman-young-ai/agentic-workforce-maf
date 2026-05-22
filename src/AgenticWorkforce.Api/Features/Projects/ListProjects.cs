@@ -1,7 +1,7 @@
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Api.Core.Pagination;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Pagination;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Projects;
@@ -31,18 +31,13 @@ public static class ListProjects
         CancellationToken ct)
     {
         var user = userAccessor.User;
-        var projects = await repo.ListByMemberAsync(user.Id, ct);
 
-        var filtered = status.HasValue
-            ? projects.Where(p => p.Status == status.Value).ToList()
-            : projects.ToList();
+        var page = await repo.ListByMemberPagedAsync(user.Id, status, paging, ct);
 
-        var page = filtered
-            .Skip(paging.Skip)
-            .Take(paging.PageSize)
+        var items = page.Items
             .Select(p => new Response(p.Id, p.Name, p.Objective, p.Status, p.Tier, p.BudgetCeilingUsd, p.CreatedAt))
             .ToList();
 
-        return Results.Ok(new PagedResult<Response>(page, paging.Page, paging.PageSize, filtered.Count));
+        return Results.Ok(new PagedResult<Response>(items, page.Page, page.PageSize, page.TotalCount));
     }
 }

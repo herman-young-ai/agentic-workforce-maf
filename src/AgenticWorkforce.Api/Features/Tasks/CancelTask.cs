@@ -3,7 +3,6 @@ using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Services;
-using AgenticWorkforce.Infrastructure.Data;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
 
@@ -21,7 +20,6 @@ public static class CancelTask
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         ITaskRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -37,7 +35,7 @@ public static class CancelTask
             throw new InvalidStateException($"Tasks in status {task.Status} cannot be cancelled.");
 
         task.Status = TaskStatus.Cancelled;
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(task, ct);
 
         return Results.NoContent();
     }

@@ -1,8 +1,7 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Auth;
 
@@ -19,7 +18,7 @@ public static class UpdateMe
     private static async Task<IResult> HandleAsync(
         [FromBody] Request request,
         ICurrentUserAccessor userAccessor,
-        AppDbContext db,
+        IUserRepository users,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.DisplayName))
@@ -27,12 +26,11 @@ public static class UpdateMe
 
         var user = userAccessor.User;
 
-        var dbUser = await db.Users
-            .FirstOrDefaultAsync(u => u.Id == user.Id, ct)
+        var dbUser = await users.GetByIdAsync(user.Id, ct)
             ?? throw new NotFoundException("User", user.Id);
 
         dbUser.DisplayName = request.DisplayName;
-        await db.SaveChangesAsync(ct);
+        await users.UpdateAsync(dbUser, ct);
 
         return Results.NoContent();
     }

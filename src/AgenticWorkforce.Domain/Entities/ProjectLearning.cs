@@ -32,7 +32,13 @@ public class ProjectLearning : ProjectScopedEntity
     public Guid? ContradictsId { get; set; }
     public ProjectLearning? Contradicts { get; set; }
 
-    public bool PlatformPromoted { get; set; }
+    public PromotionStatus PromotionStatus { get; set; } = PromotionStatus.None;
+    public DateTime? PromotionRequestedAt { get; set; }
+    public Guid? PromotionRequestedById { get; set; }
+    public User? PromotionRequestedBy { get; set; }
+    public string? PromotionRejectedReason { get; set; }
+
+    // Set on the Approved transition by PlatformAdmin (see Admin/Knowledge/ApprovePromotion).
     public string? PromotedBy { get; set; }
     public DateTime? PromotedAt { get; set; }
 

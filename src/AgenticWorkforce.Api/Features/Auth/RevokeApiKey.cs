@@ -1,7 +1,6 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 
 namespace AgenticWorkforce.Api.Features.Auth;
 
@@ -16,20 +15,21 @@ public static class RevokeApiKey
     private static async Task<IResult> HandleAsync(
         Guid keyId,
         ICurrentUserAccessor userAccessor,
-        AppDbContext db,
+        IApiKeyRepository apiKeys,
         CancellationToken ct)
     {
         var user = userAccessor.User;
 
-        var apiKey = await db.ApiKeys
-            .FirstOrDefaultAsync(k => k.Id == keyId && k.UserId == user.Id, ct)
+        // Distinguish between "no such key for this user" (404) and
+        // "key already revoked" (204 idempotent). The repository returns false
+        // for both — query the row to disambiguate.
+        var existing = await apiKeys.GetByIdForUserAsync(keyId, user.Id, ct)
             ?? throw new NotFoundException("ApiKey", keyId);
 
-        if (apiKey.RevokedAt.HasValue)
+        if (existing.RevokedAt.HasValue)
             return Results.NoContent();
 
-        apiKey.RevokedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        await apiKeys.RevokeAsync(keyId, user.Id, ct);
 
         return Results.NoContent();
     }

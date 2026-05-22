@@ -1,9 +1,8 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Members;
 
@@ -22,7 +21,7 @@ public static class TransferOwnership
         [FromBody] Request request,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        IProjectMemberRepository members,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -31,18 +30,7 @@ public static class TransferOwnership
         if (request.NewOwnerId == user.Id)
             throw new BusinessRuleException("You are already the owner of this project.");
 
-        var currentOwner = await db.ProjectMembers
-            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == user.Id, ct)
-            ?? throw new NotFoundException("Member", user.Id);
-
-        var newOwnerMember = await db.ProjectMembers
-            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == request.NewOwnerId, ct)
-            ?? throw new NotFoundException("Member", request.NewOwnerId);
-
-        currentOwner.Role = ProjectRole.Operator;
-        newOwnerMember.Role = ProjectRole.Owner;
-
-        await db.SaveChangesAsync(ct);
+        await members.TransferOwnershipAsync(projectId, user.Id, request.NewOwnerId, ct);
 
         return Results.NoContent();
     }

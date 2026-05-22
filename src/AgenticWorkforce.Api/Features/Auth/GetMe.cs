@@ -1,7 +1,6 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 
 namespace AgenticWorkforce.Api.Features.Auth;
 
@@ -24,15 +23,12 @@ public static class GetMe
 
     private static async Task<IResult> HandleAsync(
         ICurrentUserAccessor userAccessor,
-        AppDbContext db,
+        IUserRepository users,
         CancellationToken ct)
     {
         var user = userAccessor.User;
 
-        var dbUser = await db.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == user.Id, ct);
-
+        var dbUser = await users.GetByIdAsync(user.Id, ct);
         if (dbUser is null)
             return Results.Ok(new Response(user.Id, user.Email, user.DisplayName, SystemRole.Member, true, user.Roles, null));
 

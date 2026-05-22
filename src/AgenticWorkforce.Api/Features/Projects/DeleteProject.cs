@@ -2,7 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
 
 namespace AgenticWorkforce.Api.Features.Projects;
 
@@ -19,7 +18,6 @@ public static class DeleteProject
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IProjectRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -29,7 +27,7 @@ public static class DeleteProject
             ?? throw new NotFoundException("Project", projectId);
 
         project.Status = ProjectStatus.Archived;
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(project, ct);
 
         return Results.NoContent();
     }

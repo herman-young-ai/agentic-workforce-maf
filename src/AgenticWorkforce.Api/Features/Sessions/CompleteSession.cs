@@ -2,7 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
 
 namespace AgenticWorkforce.Api.Features.Sessions;
 
@@ -20,7 +19,6 @@ public static class CompleteSession
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         ISessionRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -37,7 +35,7 @@ public static class CompleteSession
             throw new InvalidStateException($"Sessions in status {session.Status} cannot be completed.");
 
         session.Status = SessionStatus.Completed;
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(session, ct);
 
         return Results.NoContent();
     }

@@ -2,9 +2,8 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Team;
 
@@ -27,7 +26,8 @@ public static class AddAgent
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IIdempotencyService idempotency,
-        AppDbContext db,
+        IAgentCatalogRepository catalog,
+        IProjectAgentRepository projectAgents,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -35,44 +35,36 @@ public static class AddAgent
 
         if (idempotencyKey is not null)
         {
-            var cached = await idempotency.GetCachedResponseAsync<Response>(idempotencyKey, ct);
+            var cached = await idempotency.GetCachedResponseAsync<Response>(user.Id, idempotencyKey, ct);
             if (cached is not null)
                 return Results.Created($"/api/v1/projects/{projectId}/team/{cached.Id}", cached);
         }
 
-        var catalog = await db.AgentCatalogs
-            .AsNoTracking()
-            .FirstOrDefaultAsync(a => a.Id == request.AgentCatalogId && a.Enabled, ct)
-            ?? throw new NotFoundException("AgentCatalog", request.AgentCatalogId);
+        var catalogEntry = await catalog.GetByIdAsync(request.AgentCatalogId, ct);
+        if (catalogEntry is null || !catalogEntry.Enabled)
+            throw new NotFoundException("AgentCatalog", request.AgentCatalogId);
 
-        var alreadyAdded = await db.ProjectAgents
-            .AnyAsync(a => a.ProjectId == projectId && a.AgentCatalogId == request.AgentCatalogId, ct);
+        var existing = await projectAgents.ListByProjectAsync(projectId, ct);
+        if (existing.Any(a => a.AgentCatalogId == request.AgentCatalogId))
+            throw new AlreadyExistsException("ProjectAgent",
+                $"Agent '{catalogEntry.AgentName}' is already on this project team.");
 
-        if (alreadyAdded)
-            throw new AlreadyExistsException("ProjectAgent", $"Agent '{catalog.AgentName}' is already on this project team.");
+        var maxDisplayOrder = existing.Count == 0 ? 0 : existing.Max(a => a.DisplayOrder);
 
-        var displayOrder = await db.ProjectAgents
-            .Where(a => a.ProjectId == projectId)
-            .Select(a => (int?)a.DisplayOrder)
-            .MaxAsync(ct) ?? 0;
-
-        var agent = new ProjectAgent
+        var agent = await projectAgents.AddAsync(new ProjectAgent
         {
             ProjectId      = projectId,
             AgentCatalogId = request.AgentCatalogId,
             Role           = request.Role,
             UserPrompt     = request.UserPrompt,
             Enabled        = true,
-            DisplayOrder   = displayOrder + 1
-        };
+            DisplayOrder   = maxDisplayOrder + 1
+        }, ct);
 
-        db.ProjectAgents.Add(agent);
-        await db.SaveChangesAsync(ct);
-
-        var response = new Response(agent.Id, agent.AgentCatalogId, catalog.AgentName, agent.Role, agent.CreatedAt);
+        var response = new Response(agent.Id, agent.AgentCatalogId, catalogEntry.AgentName, agent.Role, agent.CreatedAt);
 
         if (idempotencyKey is not null)
-            await idempotency.CacheResponseAsync(idempotencyKey, response, ct);
+            await idempotency.CacheResponseAsync(user.Id, idempotencyKey, response, ct);
 
         return Results.Created($"/api/v1/projects/{projectId}/team/{agent.Id}", response);
     }

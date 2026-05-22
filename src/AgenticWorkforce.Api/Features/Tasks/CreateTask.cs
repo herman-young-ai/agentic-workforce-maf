@@ -2,7 +2,7 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
@@ -40,7 +40,7 @@ public static class CreateTask
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IIdempotencyService idempotency,
-        AppDbContext db,
+        ITaskRepository repo,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -48,7 +48,7 @@ public static class CreateTask
 
         if (idempotencyKey is not null)
         {
-            var cached = await idempotency.GetCachedResponseAsync<Response>(idempotencyKey, ct);
+            var cached = await idempotency.GetCachedResponseAsync<Response>(user.Id, idempotencyKey, ct);
             if (cached is not null)
                 return Results.Created($"/api/v1/projects/{projectId}/tasks/{cached.Id}", cached);
         }
@@ -58,26 +58,26 @@ public static class CreateTask
 
         var task = new AgenticTask
         {
-            ProjectId    = projectId,
-            Objective    = request.Objective,
-            Type         = request.Type,
-            Source       = request.Source,
-            Status       = TaskStatus.Proposed,
-            AgentName    = request.AgentName,
-            Inputs       = request.Inputs,
-            MaxRetries   = request.MaxRetries,
-            ParentTaskId = request.ParentTaskId,
-            CreatedById  = user.Id,
+            ProjectId     = projectId,
+            Objective     = request.Objective,
+            Type          = request.Type,
+            Source        = request.Source,
+            Status        = TaskStatus.Proposed,
+            AgentName     = request.AgentName,
+            Inputs        = request.Inputs,
+            MaxRetries    = request.MaxRetries,
+            ParentTaskId  = request.ParentTaskId,
+            CreatedById   = user.Id,
             FormatVersion = "1.0"
         };
 
-        db.Tasks.Add(task);
-        await db.SaveChangesAsync(ct);
+        await repo.AddAsync(task, ct);
 
-        var response = new Response(task.Id, task.ProjectId, task.Type, task.Status, task.Objective, task.Source, task.CreatedAt);
+        var response = new Response(
+            task.Id, task.ProjectId, task.Type, task.Status, task.Objective, task.Source, task.CreatedAt);
 
         if (idempotencyKey is not null)
-            await idempotency.CacheResponseAsync(idempotencyKey, response, ct);
+            await idempotency.CacheResponseAsync(user.Id, idempotencyKey, response, ct);
 
         return Results.Created($"/api/v1/projects/{projectId}/tasks/{task.Id}", response);
     }

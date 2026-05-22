@@ -2,9 +2,8 @@ using System.Security.Cryptography;
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AgenticWorkforce.Api.Features.Auth;
 
@@ -29,7 +28,8 @@ public static class CreateApiKey
     private static async Task<IResult> HandleAsync(
         [FromBody] Request request,
         ICurrentUserAccessor userAccessor,
-        AppDbContext db,
+        IUserRepository users,
+        IApiKeyRepository apiKeys,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
@@ -37,15 +37,14 @@ public static class CreateApiKey
 
         var user = userAccessor.User;
 
-        var userExists = await db.Users.AnyAsync(u => u.Id == user.Id, ct);
-        if (!userExists)
+        if (await users.GetByIdAsync(user.Id, ct) is null)
             throw new NotFoundException("User", user.Id);
 
         var rawKey = GenerateApiKey();
         var prefix = rawKey[..12];
         var hashedKey = HashKey(rawKey);
 
-        var apiKey = new ApiKey
+        var apiKey = await apiKeys.AddAsync(new ApiKey
         {
             UserId    = user.Id,
             Name      = request.Name,
@@ -53,10 +52,7 @@ public static class CreateApiKey
             HashedKey = hashedKey,
             ExpiresAt = request.ExpiresAt,
             Scopes    = request.Scopes
-        };
-
-        db.ApiKeys.Add(apiKey);
-        await db.SaveChangesAsync(ct);
+        }, ct);
 
         // Return the full key once — it cannot be retrieved again
         return Results.Created($"/api/v1/auth/me/api-keys/{apiKey.Id}",

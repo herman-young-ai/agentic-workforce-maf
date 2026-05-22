@@ -2,7 +2,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
-using AgenticWorkforce.Infrastructure.Data;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
 
@@ -20,7 +19,6 @@ public static class ApproveTask
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         ITaskRepository repo,
-        AppDbContext db,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -40,7 +38,7 @@ public static class ApproveTask
             throw new ForbiddenException("Segregation of duties: the task creator cannot approve their own task.");
 
         task.Status = TaskStatus.Approved;
-        await db.SaveChangesAsync(ct);
+        await repo.UpdateAsync(task, ct);
 
         return Results.NoContent();
     }

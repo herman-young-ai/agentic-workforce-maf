@@ -1,9 +1,6 @@
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
-using AgenticWorkforce.Domain.Exceptions;
-using AgenticWorkforce.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using AgenticWorkforce.Domain.Interfaces.Repositories;
 
 namespace AgenticWorkforce.Api.Features.Team;
 
@@ -23,54 +20,20 @@ public static class SeedTeam
         Guid projectId,
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
-        AppDbContext db,
+        IProjectAgentRepository projectAgents,
         CancellationToken ct)
     {
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Owner, ct);
 
-        var allCatalogAgents = await db.AgentCatalogs
-            .AsNoTracking()
-            .Where(a => a.Enabled)
-            .OrderBy(a => a.AgentName)
-            .ToListAsync(ct);
+        var seeded = await projectAgents.SeedFromCatalogAsync(projectId, ct);
 
-        var existingAgentCatalogIds = await db.ProjectAgents
-            .AsNoTracking()
-            .Where(a => a.ProjectId == projectId)
-            .Select(a => a.AgentCatalogId)
-            .ToListAsync(ct);
-
-        var toAdd = allCatalogAgents
-            .Where(c => !existingAgentCatalogIds.Contains(c.Id))
+        // SeedFromCatalogAsync defaults every new ProjectAgent to AgentRole.Specialist —
+        // surface that explicitly rather than re-reading the row.
+        var agents = seeded
+            .Select(s => new AgentAdded(s.ProjectAgentId, s.AgentName, AgentRole.Specialist))
             .ToList();
 
-        if (toAdd.Count == 0)
-            return Results.Ok(new Response(0, []));
-
-        var maxDisplayOrder = await db.ProjectAgents
-            .Where(a => a.ProjectId == projectId)
-            .Select(a => (int?)a.DisplayOrder)
-            .MaxAsync(ct) ?? 0;
-
-        var added = new List<AgentAdded>();
-
-        foreach (var catalog in toAdd)
-        {
-            var agent = new ProjectAgent
-            {
-                ProjectId      = projectId,
-                AgentCatalogId = catalog.Id,
-                Role           = AgentRole.Specialist,
-                Enabled        = true,
-                DisplayOrder   = ++maxDisplayOrder
-            };
-            db.ProjectAgents.Add(agent);
-            added.Add(new AgentAdded(agent.Id, catalog.AgentName, agent.Role));
-        }
-
-        await db.SaveChangesAsync(ct);
-
-        return Results.Ok(new Response(added.Count, added));
+        return Results.Ok(new Response(agents.Count, agents));
     }
 }
