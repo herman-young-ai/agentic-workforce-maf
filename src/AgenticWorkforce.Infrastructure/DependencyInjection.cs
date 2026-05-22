@@ -66,6 +66,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<ICatalogQueryRepository, CatalogQueryRepository>();
+        services.AddScoped<IPlatformStatsRepository, PlatformStatsRepository>();
 
         // Execution dispatch — in-memory stub until Phase 5/8 wires Redis Streams.
         // Singleton because the stub holds the in-flight ID -> status dictionary.

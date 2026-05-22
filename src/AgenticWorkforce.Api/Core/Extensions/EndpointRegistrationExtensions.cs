@@ -1,8 +1,13 @@
+using AgenticWorkforce.Api.Features.Admin.Dashboard;
 using AgenticWorkforce.Api.Features.Artifacts;
 using AgenticWorkforce.Api.Features.Auth;
+using AgenticWorkforce.Api.Features.Catalog;
 using AgenticWorkforce.Api.Features.Context;
+using AgenticWorkforce.Api.Features.Costs;
 using AgenticWorkforce.Api.Features.Decisions;
 using AgenticWorkforce.Api.Features.Documents;
+using AgenticWorkforce.Api.Features.Events;
+using AgenticWorkforce.Api.Features.Executions;
 using AgenticWorkforce.Api.Features.HumanInput;
 using AgenticWorkforce.Api.Features.Intent;
 using AgenticWorkforce.Api.Features.Learnings;
@@ -178,5 +183,38 @@ public static class EndpointRegistrationExtensions
         GetDocumentText.MapEndpoints(app);
         RetractDocument.MapEndpoints(app);
         SearchDocuments.MapEndpoints(app);
+    }
+
+    public static void MapEventEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListEvents.MapEndpoints(app);
+    }
+
+    public static void MapCostEndpoints(this IEndpointRouteBuilder app)
+    {
+        GetCostSummary.MapEndpoints(app);
+        GetCostTimeline.MapEndpoints(app);
+        GetTokenEconomics.MapEndpoints(app);
+    }
+
+    public static void MapExecutionEndpoints(this IEndpointRouteBuilder app)
+    {
+        DispatchTasks.MapEndpoints(app);
+        RunAdHoc.MapEndpoints(app);
+        GetExecution.MapEndpoints(app);
+    }
+
+    public static void MapCatalogEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListCatalog.MapEndpoints(app);
+        GetCatalogAgent.MapEndpoints(app);
+    }
+
+    public static void MapAdminDashboardEndpoints(this IEndpointRouteBuilder app)
+    {
+        GetHealth.MapEndpoints(app);
+        GetOverview.MapEndpoints(app);
+        GetAdminCosts.MapEndpoints(app);
+        GetAdminCostTimeline.MapEndpoints(app);
     }
 }

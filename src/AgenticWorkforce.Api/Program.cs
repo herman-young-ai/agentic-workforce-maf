@@ -226,6 +226,11 @@ app.MapDecisionEndpoints();
 app.MapIntentEndpoints();
 app.MapArtifactEndpoints();
 app.MapDocumentEndpoints();
+app.MapEventEndpoints();
+app.MapCostEndpoints();
+app.MapExecutionEndpoints();
+app.MapCatalogEndpoints();
+app.MapAdminDashboardEndpoints();
 
 app.MapDefaultEndpoints();
 
