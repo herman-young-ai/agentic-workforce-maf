@@ -1,9 +1,13 @@
 using AgenticWorkforce.Api.Features.Auth;
+using AgenticWorkforce.Api.Features.HumanInput;
 using AgenticWorkforce.Api.Features.Members;
 using AgenticWorkforce.Api.Features.Projects;
+using AgenticWorkforce.Api.Features.Schedules;
 using AgenticWorkforce.Api.Features.Sessions;
 using AgenticWorkforce.Api.Features.Tasks;
 using AgenticWorkforce.Api.Features.Team;
+using AgenticWorkforce.Api.Features.Workflows;
+using AgenticWorkforce.Api.Features.WorkflowRuns;
 
 namespace AgenticWorkforce.Api.Core.Extensions;
 
@@ -71,5 +75,40 @@ public static class EndpointRegistrationExtensions
         CreateApiKey.MapEndpoints(app);
         ListApiKeys.MapEndpoints(app);
         RevokeApiKey.MapEndpoints(app);
+    }
+
+    public static void MapWorkflowEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListWorkflows.MapEndpoints(app);
+        GetWorkflow.MapEndpoints(app);
+        CreateWorkflow.MapEndpoints(app);
+        UpdateWorkflow.MapEndpoints(app);
+        DeleteWorkflow.MapEndpoints(app);
+        ValidateWorkflow.MapEndpoints(app);
+        SaveCanvas.MapEndpoints(app);
+        RunWorkflow.MapEndpoints(app);
+        ListWorkflowRuns.MapEndpoints(app);
+    }
+
+    public static void MapWorkflowRunEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListAllRuns.MapEndpoints(app);
+        GetRun.MapEndpoints(app);
+    }
+
+    public static void MapScheduleEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListSchedules.MapEndpoints(app);
+        CreateSchedule.MapEndpoints(app);
+        UpdateSchedule.MapEndpoints(app);
+        DeleteSchedule.MapEndpoints(app);
+        ListUpcoming.MapEndpoints(app);
+    }
+
+    public static void MapHumanInputEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListPending.MapEndpoints(app);
+        Respond.MapEndpoints(app);
+        GetAudit.MapEndpoints(app);
     }
 }

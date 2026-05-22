@@ -207,6 +207,10 @@ app.MapSessionEndpoints();
 app.MapMemberEndpoints();
 app.MapTeamEndpoints();
 app.MapAuthEndpoints();
+app.MapWorkflowEndpoints();
+app.MapWorkflowRunEndpoints();
+app.MapScheduleEndpoints();
+app.MapHumanInputEndpoints();
 
 app.MapDefaultEndpoints();
 
