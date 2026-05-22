@@ -1,6 +1,13 @@
+using AgenticWorkforce.Api.Features.Artifacts;
 using AgenticWorkforce.Api.Features.Auth;
+using AgenticWorkforce.Api.Features.Context;
+using AgenticWorkforce.Api.Features.Decisions;
+using AgenticWorkforce.Api.Features.Documents;
 using AgenticWorkforce.Api.Features.HumanInput;
+using AgenticWorkforce.Api.Features.Intent;
+using AgenticWorkforce.Api.Features.Learnings;
 using AgenticWorkforce.Api.Features.Members;
+using AgenticWorkforce.Api.Features.Milestones;
 using AgenticWorkforce.Api.Features.Projects;
 using AgenticWorkforce.Api.Features.Schedules;
 using AgenticWorkforce.Api.Features.Sessions;
@@ -110,5 +117,66 @@ public static class EndpointRegistrationExtensions
         ListPending.MapEndpoints(app);
         Respond.MapEndpoints(app);
         GetAudit.MapEndpoints(app);
+    }
+
+    public static void MapContextEndpoints(this IEndpointRouteBuilder app)
+    {
+        GetContext.MapEndpoints(app);
+        GetContextHistory.MapEndpoints(app);
+        AddPrinciple.MapEndpoints(app);
+        AddGuardrail.MapEndpoints(app);
+        RemovePrinciple.MapEndpoints(app);
+        RemoveGuardrail.MapEndpoints(app);
+    }
+
+    public static void MapLearningEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListLearnings.MapEndpoints(app);
+        GetLearning.MapEndpoints(app);
+        RetractLearning.MapEndpoints(app);
+        EditLearning.MapEndpoints(app);
+        SupersedeLearning.MapEndpoints(app);
+        PromoteLearning.MapEndpoints(app);
+        SearchLearnings.MapEndpoints(app);
+        FindSimilar.MapEndpoints(app);
+    }
+
+    public static void MapMilestoneEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListMilestones.MapEndpoints(app);
+        GetMilestone.MapEndpoints(app);
+        CreateMilestone.MapEndpoints(app);
+    }
+
+    public static void MapDecisionEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListDecisions.MapEndpoints(app);
+        GetDecision.MapEndpoints(app);
+        CreateDecision.MapEndpoints(app);
+    }
+
+    public static void MapIntentEndpoints(this IEndpointRouteBuilder app)
+    {
+        GetIntent.MapEndpoints(app);
+        GetIntentHistory.MapEndpoints(app);
+        CreateIntent.MapEndpoints(app);
+    }
+
+    public static void MapArtifactEndpoints(this IEndpointRouteBuilder app)
+    {
+        ListArtifacts.MapEndpoints(app);
+        GetArtifact.MapEndpoints(app);
+        GetArtifactContent.MapEndpoints(app);
+        RetractArtifact.MapEndpoints(app);
+    }
+
+    public static void MapDocumentEndpoints(this IEndpointRouteBuilder app)
+    {
+        UploadDocument.MapEndpoints(app);
+        ListDocuments.MapEndpoints(app);
+        GetDocument.MapEndpoints(app);
+        GetDocumentText.MapEndpoints(app);
+        RetractDocument.MapEndpoints(app);
+        SearchDocuments.MapEndpoints(app);
     }
 }

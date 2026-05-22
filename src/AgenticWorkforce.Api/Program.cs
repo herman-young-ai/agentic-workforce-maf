@@ -17,6 +17,14 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// -- Kestrel limits — raise request body cap to 50 MB for document uploads
+//    (Principle 19: bounded resource usage; per-endpoint limit also enforced
+//    in handler logic so over-sized payloads return a typed error). --
+builder.WebHost.ConfigureKestrel(opts =>
+{
+    opts.Limits.MaxRequestBodySize = 50L * 1024 * 1024;
+});
+
 // -- Aspire ServiceDefaults (OTel, health checks, service discovery) --
 builder.AddServiceDefaults();
 
@@ -211,6 +219,13 @@ app.MapWorkflowEndpoints();
 app.MapWorkflowRunEndpoints();
 app.MapScheduleEndpoints();
 app.MapHumanInputEndpoints();
+app.MapContextEndpoints();
+app.MapLearningEndpoints();
+app.MapMilestoneEndpoints();
+app.MapDecisionEndpoints();
+app.MapIntentEndpoints();
+app.MapArtifactEndpoints();
+app.MapDocumentEndpoints();
 
 app.MapDefaultEndpoints();
 
