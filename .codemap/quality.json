@@ -1,1 +1,1 @@
-{"cqi": 61.3, "band": "ADEQUATE", "kloc": 1.0, "dimensions": {"Maintainability": 60, "Security": 85, "Testability": 50, "Reusability": 33, "Modularity": 62, "Robustness": 74, "Elegance": 62}}
+{"cqi": 58.9, "band": "ADEQUATE", "kloc": 1.0, "dimensions": {"Maintainability": 60, "Security": 85, "Testability": 50, "Reusability": 33, "Modularity": 62, "Robustness": 50, "Elegance": 62}}

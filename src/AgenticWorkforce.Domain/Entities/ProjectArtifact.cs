@@ -19,4 +19,8 @@ public class ProjectArtifact : TaskScopedEntity
     public string? Metadata { get; set; }
 
     public string FormatVersion { get; set; } = "1.0";
+
+    // Soft retraction (Principle 13: retract, never hard-delete).
+    public DateTime? RetractedAt { get; set; }
+    public string? RetractedBy { get; set; }
 }

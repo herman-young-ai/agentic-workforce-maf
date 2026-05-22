@@ -23,6 +23,10 @@ public class ProjectDocument : ProjectScopedEntity
     public Guid UploadedById { get; set; }
     public User UploadedBy { get; set; } = null!;
 
+    // Soft retraction (Principle 13: retract, never hard-delete).
+    public DateTime? RetractedAt { get; set; }
+    public string? RetractedBy { get; set; }
+
     public ICollection<DocumentChunk> Chunks { get; set; } = [];
 }
 

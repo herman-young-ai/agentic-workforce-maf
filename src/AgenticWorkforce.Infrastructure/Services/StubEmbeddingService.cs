@@ -3,22 +3,24 @@ using AgenticWorkforce.Domain.Interfaces.Services;
 namespace AgenticWorkforce.Infrastructure.Services;
 
 /// <summary>
-/// Deterministic zero-vector stub used until a real embedding provider is wired
-/// up in Phase 6. Returns a 1536-dim float array of zeros to satisfy the
-/// pgvector(1536) column type without making external calls.
+/// Fail-fast stub used until a real embedding provider is wired in Phase 6
+/// (Azure OpenAI per ADR-002). Returning a zero vector silently corrupts
+/// pgvector cosine search (undefined distance over a zero-norm vector), so
+/// the stub throws if called. Embedding-dependent endpoints inspect
+/// <see cref="IEmbeddingService.IsConfigured"/> and short-circuit to HTTP 503
+/// before invoking, so callers never see the exception under normal use.
 /// </summary>
 internal sealed class StubEmbeddingService : IEmbeddingService
 {
-    private const int Dimension = 1536;
+    private const string NotConfiguredMessage =
+        "Embeddings are not configured. Wire AzureOpenAIEmbeddingService in Phase 6 " +
+        "(per ADR-002) before calling embedding-dependent endpoints.";
+
+    public bool IsConfigured => false;
 
     public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
-        => Task.FromResult(new float[Dimension]);
+        => throw new NotImplementedException(NotConfiguredMessage);
 
     public Task<float[][]> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct = default)
-    {
-        var batch = new float[texts.Count][];
-        for (var i = 0; i < texts.Count; i++)
-            batch[i] = new float[Dimension];
-        return Task.FromResult(batch);
-    }
+        => throw new NotImplementedException(NotConfiguredMessage);
 }

@@ -45,13 +45,41 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
-        services.AddScoped<IWorkflowRepository, WorkflowRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
         services.AddScoped<IProjectMemberRepository, ProjectMemberRepository>();
         services.AddScoped<IProjectAgentRepository, ProjectAgentRepository>();
         services.AddScoped<IAgentCatalogRepository, AgentCatalogRepository>();
         services.AddScoped<IPromptVersionRepository, PromptVersionRepository>();
+
+        // Phase 4 repositories.
+        services.AddScoped<IWorkflowDefinitionRepository, WorkflowDefinitionRepository>();
+        services.AddScoped<IWorkflowRunRepository, WorkflowRunRepository>();
+        services.AddScoped<IWorkflowScheduleRepository, WorkflowScheduleRepository>();
+        services.AddScoped<IHumanInputRepository, HumanInputRepository>();
+        services.AddScoped<IProjectContextRepository, ProjectContextRepository>();
+        services.AddScoped<ILearningRepository, LearningRepository>();
+        services.AddScoped<IMilestoneRepository, MilestoneRepository>();
+        services.AddScoped<IDecisionRepository, DecisionRepository>();
+        services.AddScoped<IIntentRepository, IntentRepository>();
+        services.AddScoped<IArtifactRepository, ArtifactRepository>();
+        services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<IEventRepository, EventRepository>();
+        services.AddScoped<ICatalogQueryRepository, CatalogQueryRepository>();
+
+        // Execution dispatch — in-memory stub until Phase 5/8 wires Redis Streams.
+        // Singleton because the stub holds the in-flight ID -> status dictionary.
+        services.AddSingleton<IExecutionRepository, InMemoryExecutionRepository>();
+
+        // Phase 4 services.
+        services.AddScoped<IProjectContextService, ProjectContextService>();
+        services.AddScoped<ICostQueryService, CostQueryService>();
+        services.AddSingleton<IWorkflowValidator, WorkflowValidator>();
+        services.Configure<CostQueryOptions>(opts =>
+        {
+            if (int.TryParse(configuration["CostQuery:MaxRangeDays"], out var days) && days > 0)
+                opts.MaxRangeDays = days;
+        });
 
         // Service stubs — replaced in Phase 6+ (embedding provider) and Phase 11 (blob storage)
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();
