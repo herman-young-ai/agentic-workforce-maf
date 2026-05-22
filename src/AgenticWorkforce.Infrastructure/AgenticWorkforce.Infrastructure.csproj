@@ -21,4 +21,12 @@
     <ProjectReference Include="..\AgenticWorkforce.Domain\AgenticWorkforce.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Internal types (WorkflowValidator, repository impls) are visible to
+         test projects so unit/integration tests can construct concrete
+         instances without making them public. -->
+    <InternalsVisibleTo Include="AgenticWorkforce.Api.Tests.Unit" />
+    <InternalsVisibleTo Include="AgenticWorkforce.Api.Tests.Integration" />
+  </ItemGroup>
+
 </Project>
