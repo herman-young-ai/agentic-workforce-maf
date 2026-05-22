@@ -1,14 +1,8 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
+using AgenticWorkforce.Domain.Queries;
 
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
-
-/// <summary>
-/// Outcome of a Respond attempt. <see cref="Forbidden"/> is true when the
-/// segregation-of-duties check fires (the responder is the user who triggered
-/// the workflow run).
-/// </summary>
-public record RespondOutcome(bool Resolved, bool Forbidden, string? Reason);
 
 /// <summary>
 /// Repository for human approval gates created during workflow runs.

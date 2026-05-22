@@ -1,14 +1,8 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Pagination;
+using AgenticWorkforce.Domain.Queries;
 
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
-
-/// <summary>
-/// Carrier for artifact content. <see cref="InlineText"/> is populated for
-/// inline artifacts (markdown reports, code files); <see cref="StorageUrl"/>
-/// is populated for blob-stored binaries (PDF, DOCX, XLSX). Exactly one is set.
-/// </summary>
-public record ArtifactContent(string? InlineText, string? StorageUrl, string ContentFormat);
 
 /// <summary>
 /// Repository for project artifacts — the polished deliverables that

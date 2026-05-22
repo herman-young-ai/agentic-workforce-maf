@@ -1,6 +1,7 @@
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Queries;
 using AgenticWorkforce.Domain.Pagination;
 using Microsoft.AspNetCore.Mvc;
 

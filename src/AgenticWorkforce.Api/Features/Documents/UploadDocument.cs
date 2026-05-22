@@ -1,9 +1,11 @@
+using System.Security.Cryptography;
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Documents;
 
@@ -22,10 +24,12 @@ public static class UploadDocument
         app.MapPost("/api/v1/projects/{projectId:guid}/documents", HandleAsync)
             .RequireAuthorization(Policies.RequireOperator)
             .DisableAntiforgery()
+            // 50 MB cap is scoped to THIS route only; JSON endpoints keep the
+            // ASP.NET Core default. The handler re-checks file.Length so
+            // over-sized payloads surface as a typed ValidationException
+            // (HTTP 422) rather than a bare 413.
+            .WithMetadata(new RequestSizeLimitAttribute(MaxUploadBytes))
             .WithTags("Documents");
-    // Kestrel-level MaxRequestBodySize is raised to 50 MB in Program.cs.
-    // The handler also enforces the same limit on file.Length so over-sized
-    // uploads return a typed ValidationException rather than a 413.
 
     private static async Task<IResult> HandleAsync(
         Guid projectId,
@@ -52,10 +56,29 @@ public static class UploadDocument
             throw new ValidationException(
                 $"File exceeds the {MaxUploadBytes / 1024 / 1024} MB upload limit.");
 
-        var path = $"documents/{Guid.NewGuid():N}/{file.FileName}";
-        await using (var stream = file.OpenReadStream())
+        // The client-supplied filename feeds the storage path, so strip any
+        // directory component before composing the key. The store layer also
+        // rejects path-traversal, but doing it here keeps the stored key
+        // free of "../" tokens that would later confuse audit/search.
+        var safeFileName = Path.GetFileName(file.FileName);
+        if (string.IsNullOrWhiteSpace(safeFileName))
+            throw new ValidationException("Uploaded file has no usable name.");
+
+        var path = $"documents/{Guid.NewGuid():N}/{safeFileName}";
+
+        // Hash the bytes as they stream into storage so we read the HTTP body
+        // exactly once. The hash finalises when CryptoStream is disposed; only
+        // then is `sha.Hash` populated. SHA-256 is enough for integrity
+        // (Principle 13 audit trail) — not used as a security boundary.
+        using var sha = SHA256.Create();
+        string contentHash;
+        await using (var src = file.OpenReadStream())
         {
-            await store.UploadAsync(projectId.ToString("N"), path, stream, file.ContentType, ct);
+            await using (var hashing = new CryptoStream(src, sha, CryptoStreamMode.Read, leaveOpen: false))
+            {
+                await store.UploadAsync(projectId.ToString("N"), path, hashing, file.ContentType, ct);
+            }
+            contentHash = Convert.ToHexString(sha.Hash!).ToLowerInvariant();
         }
 
         var description = form["description"].ToString();
@@ -67,11 +90,11 @@ public static class UploadDocument
         var document = await repo.AddAsync(new ProjectDocument
         {
             ProjectId        = projectId,
-            FileName         = file.FileName,
+            FileName         = safeFileName,
             ContentType      = file.ContentType,
             FileSizeBytes    = file.Length,
             StorageUrl       = path,
-            ContentHash      = "",
+            ContentHash      = contentHash,
             ExtractionStatus = ExtractionStatus.Pending,
             DocumentType     = documentType,
             Description      = string.IsNullOrWhiteSpace(description) ? null : description,

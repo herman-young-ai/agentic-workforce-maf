@@ -1,7 +1,7 @@
 using System.Text.Json;
 using AgenticWorkforce.Domain.Interfaces.Services;
 
-namespace AgenticWorkforce.Infrastructure.Services;
+namespace AgenticWorkforce.Domain.Services;
 
 /// <summary>
 /// Pure validator for workflow graph JSON. Each rule reports a distinct error
@@ -11,7 +11,7 @@ namespace AgenticWorkforce.Infrastructure.Services;
 ///   nodes: [{ "id": "n1", "type": "Start" | "End" | "Decision" | ... }, ...]
 ///   edges: [{ "from": "n1", "to": "n2", "label": "optional condition" }, ...]
 /// </summary>
-internal sealed class WorkflowValidator : IWorkflowValidator
+public sealed class WorkflowValidator : IWorkflowValidator
 {
     public WorkflowValidationResult Validate(string nodesJson, string edgesJson)
     {
@@ -99,8 +99,12 @@ internal sealed class WorkflowValidator : IWorkflowValidator
         var list = new List<NodeRef>();
         foreach (var el in doc.RootElement.EnumerateArray())
         {
-            var id = el.GetProperty("id").GetString()
-                ?? throw new JsonException("Node missing 'id'.");
+            // TryGetProperty rather than GetProperty so a missing required
+            // field surfaces as a MalformedJson validation error (caught
+            // upstream) instead of an uncaught KeyNotFoundException that
+            // would turn into a 500.
+            if (!el.TryGetProperty("id", out var idEl) || idEl.GetString() is not { } id)
+                throw new JsonException("Node missing required 'id' string field.");
             var type = el.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
             list.Add(new NodeRef(id, type));
         }
@@ -113,10 +117,10 @@ internal sealed class WorkflowValidator : IWorkflowValidator
         var list = new List<EdgeRef>();
         foreach (var el in doc.RootElement.EnumerateArray())
         {
-            var from = el.GetProperty("from").GetString()
-                ?? throw new JsonException("Edge missing 'from'.");
-            var to = el.GetProperty("to").GetString()
-                ?? throw new JsonException("Edge missing 'to'.");
+            if (!el.TryGetProperty("from", out var fromEl) || fromEl.GetString() is not { } from)
+                throw new JsonException("Edge missing required 'from' string field.");
+            if (!el.TryGetProperty("to", out var toEl) || toEl.GetString() is not { } to)
+                throw new JsonException("Edge missing required 'to' string field.");
             var label = el.TryGetProperty("label", out var l) ? l.GetString() : null;
             list.Add(new EdgeRef(from, to, label));
         }
@@ -161,6 +165,6 @@ internal sealed class WorkflowValidator : IWorkflowValidator
         return false;
     }
 
-    private record NodeRef(string Id, string Type);
-    private record EdgeRef(string From, string To, string? Label);
+    private sealed record NodeRef(string Id, string Type);
+    private sealed record EdgeRef(string From, string To, string? Label);
 }

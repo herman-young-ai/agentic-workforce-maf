@@ -1,5 +1,6 @@
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Queries;
 using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 

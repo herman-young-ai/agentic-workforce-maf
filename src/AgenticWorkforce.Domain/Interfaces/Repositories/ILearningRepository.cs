@@ -1,14 +1,8 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Pagination;
-using Pgvector;
+using AgenticWorkforce.Domain.Queries;
 
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
-
-/// <summary>
-/// Pair of (learning, similarity) returned by vector search. Score is the
-/// cosine similarity in [0, 1] with 1 meaning identical embeddings.
-/// </summary>
-public record LearningMatch(ProjectLearning Learning, double Score);
 
 /// <summary>
 /// Repository for accumulated project learnings. Includes the promotion
@@ -65,7 +59,7 @@ public interface ILearningRepository
     /// </summary>
     Task<IReadOnlyList<LearningMatch>> SearchByEmbeddingAsync(
         Guid projectId,
-        Vector queryEmbedding,
+        float[] queryEmbedding,
         int limit,
         CancellationToken ct = default);
 

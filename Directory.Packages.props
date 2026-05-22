@@ -35,6 +35,7 @@
     <PackageVersion Include="Serilog.Enrichers.Sensitive" Version="2.1.0" />
     <PackageVersion Include="Serilog.Formatting.Compact" Version="3.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageVersion Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
 
     <!-- AI -->
     <PackageVersion Include="Microsoft.Extensions.AI" Version="9.6.0" />

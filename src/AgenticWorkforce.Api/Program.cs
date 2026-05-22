@@ -17,13 +17,10 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// -- Kestrel limits — raise request body cap to 50 MB for document uploads
-//    (Principle 19: bounded resource usage; per-endpoint limit also enforced
-//    in handler logic so over-sized payloads return a typed error). --
-builder.WebHost.ConfigureKestrel(opts =>
-{
-    opts.Limits.MaxRequestBodySize = 50L * 1024 * 1024;
-});
+// -- Kestrel default request-body cap kept at the ASP.NET Core default of
+//    30 MB. JSON endpoints don't need more; the document-upload slice opts
+//    in to a larger payload via per-route IRequestSizeLimitMetadata
+//    (Principle 19: bounded resource usage, scoped narrowly). --
 
 // -- Aspire ServiceDefaults (OTel, health checks, service discovery) --
 builder.AddServiceDefaults();
@@ -40,8 +37,10 @@ if (!string.IsNullOrEmpty(aiConnectionString))
 // -- Azure Key Vault (production) --
 if (builder.Environment.IsProduction())
 {
-    var kvUri = builder.Configuration["KeyVault:Uri"]
-        ?? throw new InvalidOperationException("KeyVault:Uri is required in production.");
+    var kvUri = builder.Configuration["KeyVault:Uri"];
+    if (string.IsNullOrWhiteSpace(kvUri))
+        throw new InvalidOperationException(
+            "KeyVault:Uri is required in production (null or empty value supplied).");
     builder.Configuration.AddAzureKeyVault(new Uri(kvUri), new DefaultAzureCredential());
 }
 
@@ -209,30 +208,10 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapProjectEndpoints();
-app.MapTaskEndpoints();
-app.MapSessionEndpoints();
-app.MapMemberEndpoints();
-app.MapTeamEndpoints();
-app.MapAuthEndpoints();
-app.MapWorkflowEndpoints();
-app.MapWorkflowRunEndpoints();
-app.MapScheduleEndpoints();
-app.MapHumanInputEndpoints();
-app.MapContextEndpoints();
-app.MapLearningEndpoints();
-app.MapMilestoneEndpoints();
-app.MapDecisionEndpoints();
-app.MapIntentEndpoints();
-app.MapArtifactEndpoints();
-app.MapDocumentEndpoints();
-app.MapEventEndpoints();
-app.MapCostEndpoints();
-app.MapExecutionEndpoints();
-app.MapCatalogEndpoints();
-app.MapAdminDashboardEndpoints();
-app.MapAdminCatalogEndpoints();
-app.MapAdminKnowledgeEndpoints();
+// Plugin-style discovery: every static class under Features/* with a
+// `public static void MapEndpoints(IEndpointRouteBuilder app)` is registered
+// automatically. Adding an endpoint is a single-file change.
+app.MapFeatureSlices();
 
 app.MapDefaultEndpoints();
 

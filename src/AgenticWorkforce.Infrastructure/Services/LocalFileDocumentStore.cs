@@ -41,7 +41,14 @@ internal sealed class LocalFileDocumentStore(string basePath) : IDocumentStore
         var safeContainer = Path.GetFileName(containerName);
         var combined = Path.GetFullPath(Path.Combine(basePath, safeContainer, path));
         var root = Path.GetFullPath(basePath);
-        if (!combined.StartsWith(root, StringComparison.Ordinal))
+
+        // `GetRelativePath` normalises `..` segments; if the resolved path
+        // still climbs above root the relative form starts with "..". This
+        // catches the prefix-bypass case (`/var/store-evil` would StartsWith
+        // `/var/store`) that the previous string-prefix check missed.
+        var rel = Path.GetRelativePath(root, combined);
+        if (rel == ".." || rel.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                        || Path.IsPathRooted(rel))
             throw new UnauthorizedAccessException($"Path '{path}' escapes the document store root.");
         return combined;
     }

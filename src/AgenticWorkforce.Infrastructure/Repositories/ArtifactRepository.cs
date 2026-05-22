@@ -1,6 +1,7 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Pagination;
+using AgenticWorkforce.Domain.Queries;
 using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 

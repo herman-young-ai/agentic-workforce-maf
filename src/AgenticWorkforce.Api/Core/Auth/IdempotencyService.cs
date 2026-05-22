@@ -20,11 +20,28 @@ public interface IIdempotencyService
 /// implementation in Phase 5 so the cache survives Api replica scale-out
 /// (per-replica state breaks idempotency under retries that hit a different
 /// pod).
+/// <para>
+/// The cache used to grow without bound — expired entries were only evicted
+/// when the SAME key was queried again, which by definition won't happen for
+/// an unused idempotency key. A timer now sweeps expired entries every
+/// <see cref="SweepInterval"/>. <see cref="Dispose"/> stops the timer on
+/// host shutdown.
+/// </para>
 /// </summary>
-internal sealed class InMemoryIdempotencyService : IIdempotencyService
+internal sealed class InMemoryIdempotencyService : IIdempotencyService, IDisposable
 {
+    private static readonly TimeSpan Ttl           = TimeSpan.FromHours(24);
+    private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(15);
+
     private readonly ConcurrentDictionary<string, (object Response, DateTime ExpiresAt)> _cache = new();
-    private static readonly TimeSpan Ttl = TimeSpan.FromHours(24);
+    private readonly Timer _sweepTimer;
+    private bool _disposed;
+
+    public InMemoryIdempotencyService()
+    {
+        _sweepTimer = new Timer(_ => SweepExpired(), state: null,
+            dueTime: SweepInterval, period: SweepInterval);
+    }
 
     public Task<T?> GetCachedResponseAsync<T>(Guid userId, string key, CancellationToken ct = default)
     {
@@ -38,6 +55,32 @@ internal sealed class InMemoryIdempotencyService : IIdempotencyService
     {
         _cache[Compose(userId, key)] = (response!, DateTime.UtcNow.Add(Ttl));
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Removes entries whose <c>ExpiresAt</c> has passed. Exposed internal
+    /// for tests so the sweep can be exercised without spinning the timer.
+    /// </summary>
+    internal int SweepExpired()
+    {
+        var now = DateTime.UtcNow;
+        var removed = 0;
+        foreach (var kvp in _cache)
+        {
+            if (kvp.Value.ExpiresAt <= now
+                && _cache.TryRemove(new KeyValuePair<string, (object, DateTime)>(kvp.Key, kvp.Value)))
+            {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _sweepTimer.Dispose();
     }
 
     private static string Compose(Guid userId, string key) => $"{userId:N}:{key}";

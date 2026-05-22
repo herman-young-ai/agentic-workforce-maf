@@ -2,6 +2,7 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
@@ -37,8 +38,14 @@ public static class RejectTask
         if (task.ProjectId != projectId)
             throw new NotFoundException("Task", taskId);
 
+        // Endpoint-level constraint: Reject is a Proposed-only gate. Other
+        // sources cancel via /cancel. The lifecycle gate below is matrix-owned.
         if (task.Status != TaskStatus.Proposed)
             throw new InvalidStateException($"Only proposed tasks can be rejected (current status: {task.Status}).");
+
+        if (!TaskStateValidator.CanTransition(task.Status, TaskStatus.Cancelled))
+            throw new InvalidStateException(
+                $"Lifecycle forbids {task.Status} -> Cancelled transition.");
 
         task.Status = TaskStatus.Cancelled;
         task.OutputSummary = $"Rejected: {request.Reason}";

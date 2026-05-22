@@ -1,12 +1,7 @@
 using AgenticWorkforce.Domain.Entities;
+using AgenticWorkforce.Domain.Queries;
 
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
-
-/// <summary>
-/// Result of a team-seed operation. Reports the IDs created so the caller can
-/// respond with concrete attributions without re-reading.
-/// </summary>
-public record SeededProjectAgent(Guid ProjectAgentId, Guid AgentCatalogId, string AgentName);
 
 /// <summary>
 /// Repository for ProjectAgent — the link between a project and an enabled

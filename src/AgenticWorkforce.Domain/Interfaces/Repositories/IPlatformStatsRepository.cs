@@ -1,11 +1,6 @@
-namespace AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Queries;
 
-public record PlatformOverview(
-    int TotalProjects,
-    int ActiveProjects,
-    int TotalUsers,
-    int ActiveUsers,
-    int AgentCatalogSize);
+namespace AgenticWorkforce.Domain.Interfaces.Repositories;
 
 /// <summary>
 /// Cross-project aggregations for platform admin dashboards. Always

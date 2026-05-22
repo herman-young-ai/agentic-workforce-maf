@@ -2,6 +2,7 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Queries;
 
 namespace AgenticWorkforce.Api.Features.Executions;
 

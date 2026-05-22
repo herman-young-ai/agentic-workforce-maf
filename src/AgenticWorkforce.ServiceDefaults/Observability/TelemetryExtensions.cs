@@ -60,6 +60,26 @@ public static class TelemetryExtensions
                 retainedFileCountLimit: 30,
                 shared: false);
 
+        // Forward log records to the OTLP collector when an endpoint is
+        // configured. Routing through this sink (rather than wiring a
+        // separate OTel ILoggerProvider) preserves Serilog's PII masking
+        // and resource properties on the exported records, and avoids the
+        // duplicate-emission problem two parallel logger providers cause.
+        var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        {
+            logConfig = logConfig.WriteTo.OpenTelemetry(opts =>
+            {
+                opts.Endpoint = otlpEndpoint;
+                opts.ResourceAttributes = new Dictionary<string, object>
+                {
+                    ["service.name"]     = applicationName,
+                    ["deployment.environment"] = builder.Environment.EnvironmentName,
+                    ["service.namespace"] = "agenticworkforce"
+                };
+            });
+        }
+
         Log.Logger = logConfig.CreateLogger();
         builder.Services.AddSerilog();
 

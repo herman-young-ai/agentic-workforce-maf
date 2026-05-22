@@ -1,27 +1,9 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Pagination;
+using AgenticWorkforce.Domain.Queries;
 
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
-
-/// <summary>
-/// Filter options for task list queries. Each property is independent and
-/// combined with AND when set.
-/// </summary>
-public record TaskListFilter(
-    TaskStatus? Status = null,
-    TaskType? Type = null,
-    TaskSource? Source = null,
-    string? AgentName = null,
-    Guid? ParentTaskId = null);
-
-/// <summary>
-/// Per-task outcome of a bulk approve attempt. <see cref="Reason"/> is populated
-/// only when <see cref="Approved"/> is false.
-/// </summary>
-public record BulkApproveItem(Guid TaskId, bool Approved, string? Reason);
-
-public record BulkApproveResult(IReadOnlyList<BulkApproveItem> Items);
 
 /// <summary>
 /// Repository for the AgenticTask aggregate.

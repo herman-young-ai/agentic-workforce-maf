@@ -1,5 +1,5 @@
 using AgenticWorkforce.Domain.Interfaces.Services;
-using AgenticWorkforce.Infrastructure.Services;
+using AgenticWorkforce.Domain.Services;
 using FluentAssertions;
 using Xunit;
 
@@ -145,6 +145,33 @@ public class WorkflowValidatorUnitTests
     public void Validate_MalformedNodes_ReportsMalformedJson()
     {
         var result = _sut.Validate("not json", "[]");
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().ContainSingle(e => e.Cause == WorkflowValidationCause.MalformedJson);
+    }
+
+    [Fact]
+    public void Validate_NodeMissingId_ReportsMalformedJson()
+    {
+        // Regression: GetProperty("id") used to throw KeyNotFoundException which
+        // escaped the JsonException catch and surfaced as HTTP 500. Must come
+        // back as a typed MalformedJson validation error.
+        var nodes = """[{"type":"Start"}]""";
+        var edges = "[]";
+
+        var result = _sut.Validate(nodes, edges);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().ContainSingle(e => e.Cause == WorkflowValidationCause.MalformedJson);
+    }
+
+    [Fact]
+    public void Validate_EdgeMissingFrom_ReportsMalformedJson()
+    {
+        var nodes = """[{"id":"s","type":"Start"},{"id":"e","type":"End"}]""";
+        var edges = """[{"to":"e"}]""";
+
+        var result = _sut.Validate(nodes, edges);
 
         result.IsValid.Should().BeFalse();
         result.Errors.Should().ContainSingle(e => e.Cause == WorkflowValidationCause.MalformedJson);

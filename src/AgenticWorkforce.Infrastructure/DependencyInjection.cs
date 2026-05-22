@@ -1,5 +1,6 @@
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
+using AgenticWorkforce.Domain.Services;
 using AgenticWorkforce.Infrastructure.Data;
 using AgenticWorkforce.Infrastructure.Repositories;
 using AgenticWorkforce.Infrastructure.Services;
@@ -27,12 +28,27 @@ public static class InfrastructureServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("agenticworkforce")
-            ?? throw new InvalidOperationException(
-                "Connection string 'agenticworkforce' is required.");
-
-        var dataSource = DataSourceFactory.Create(connectionString);
-        services.AddSingleton(dataSource);
+        // The NpgsqlDataSource is resolved through the DI container so the
+        // connection string is read AFTER WebApplicationFactory's
+        // ConfigureAppConfiguration overrides have applied. Reading it
+        // eagerly here would bind the data source to the appsettings.json
+        // placeholder and integration tests' Testcontainers override would
+        // never take effect.
+        // The `__PROVIDED_AT_RUNTIME__` sentinel in appsettings.json fails
+        // fast at first resolve when the environment hasn't supplied a real
+        // value via Aspire reference, env var, user-secrets, or Key Vault.
+        services.AddSingleton<NpgsqlDataSource>(sp =>
+        {
+            const string Placeholder = "__PROVIDED_AT_RUNTIME__";
+            var cfg = sp.GetRequiredService<IConfiguration>();
+            var cs = cfg.GetConnectionString("agenticworkforce");
+            if (string.IsNullOrWhiteSpace(cs)
+                || string.Equals(cs, Placeholder, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    "Connection string 'agenticworkforce' is required (set via Aspire reference, "
+                    + "environment variable, user-secrets, or Key Vault — never hardcoded in appsettings.json).");
+            return DataSourceFactory.Create(cs);
+        });
 
         services.AddScoped<AuditInterceptor>();
 

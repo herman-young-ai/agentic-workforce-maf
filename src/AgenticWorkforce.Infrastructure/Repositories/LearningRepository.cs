@@ -1,7 +1,9 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
+using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Pagination;
+using AgenticWorkforce.Domain.Queries;
 using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
@@ -37,10 +39,15 @@ internal sealed class LearningRepository(AppDbContext db) : ILearningRepository
         await db.SaveChangesAsync(ct);
     }
 
+    // The mutators below throw NotFoundException when the row has disappeared
+    // between the handler's pre-load and the write (e.g. concurrent delete or
+    // racing retract). Silent no-ops would mask the race and let callers
+    // report success without doing the work (violates Principle 8).
+
     public async Task RetractAsync(Guid id, string retractedBy, string reason, CancellationToken ct = default)
     {
-        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct);
-        if (learning is null) return;
+        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct)
+            ?? throw new NotFoundException("Learning", id);
 
         learning.Status          = LearningStatus.Retracted;
         learning.RetractedBy     = retractedBy;
@@ -53,8 +60,8 @@ internal sealed class LearningRepository(AppDbContext db) : ILearningRepository
         ProjectLearning replacement,
         CancellationToken ct = default)
     {
-        var old = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == oldId, ct);
-        if (old is null) return;
+        var old = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == oldId, ct)
+            ?? throw new NotFoundException("Learning", oldId);
 
         db.ProjectLearnings.Add(replacement);
         old.Status         = LearningStatus.Superseded;
@@ -64,8 +71,8 @@ internal sealed class LearningRepository(AppDbContext db) : ILearningRepository
 
     public async Task RequestPromotionAsync(Guid id, Guid requestedById, CancellationToken ct = default)
     {
-        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct);
-        if (learning is null) return;
+        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct)
+            ?? throw new NotFoundException("Learning", id);
 
         learning.PromotionStatus       = PromotionStatus.PendingApproval;
         learning.PromotionRequestedAt  = DateTime.UtcNow;
@@ -75,8 +82,8 @@ internal sealed class LearningRepository(AppDbContext db) : ILearningRepository
 
     public async Task ApprovePromotionAsync(Guid id, Guid approvedById, CancellationToken ct = default)
     {
-        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct);
-        if (learning is null) return;
+        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct)
+            ?? throw new NotFoundException("Learning", id);
 
         learning.PromotionStatus = PromotionStatus.Approved;
         learning.PromotedBy      = approvedById.ToString();
@@ -86,8 +93,8 @@ internal sealed class LearningRepository(AppDbContext db) : ILearningRepository
 
     public async Task RejectPromotionAsync(Guid id, string reason, CancellationToken ct = default)
     {
-        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct);
-        if (learning is null) return;
+        var learning = await db.ProjectLearnings.FirstOrDefaultAsync(l => l.Id == id, ct)
+            ?? throw new NotFoundException("Learning", id);
 
         learning.PromotionStatus        = PromotionStatus.Rejected;
         learning.PromotionRejectedReason = reason;
@@ -114,18 +121,22 @@ internal sealed class LearningRepository(AppDbContext db) : ILearningRepository
 
     public async Task<IReadOnlyList<LearningMatch>> SearchByEmbeddingAsync(
         Guid projectId,
-        Vector queryEmbedding,
+        float[] queryEmbedding,
         int limit,
         CancellationToken ct = default)
     {
-        // Cosine distance via pgvector's `<=>` operator (Pgvector.EFCore extension).
-        // Convert distance in [0, 2] to a similarity score in [0, 1] for the API.
+        // Callers pass plain float[] (Domain stays free of Pgvector at the
+        // interface surface). Conversion to Pgvector.Vector happens here so
+        // the EF-translated pgvector `<=>` (CosineDistance) extension can
+        // run. Cosine distance lives in [0, 2]; we map to a [0, 1] similarity
+        // for the API.
+        var pgQuery = new Vector(queryEmbedding);
         var rows = await db.ProjectLearnings
             .AsNoTracking()
             .Where(l => l.ProjectId == projectId
                      && l.Status == LearningStatus.Active
                      && l.Embedding != null)
-            .Select(l => new { Learning = l, Distance = l.Embedding!.CosineDistance(queryEmbedding) })
+            .Select(l => new { Learning = l, Distance = l.Embedding!.CosineDistance(pgQuery) })
             .OrderBy(r => r.Distance)
             .Take(limit)
             .ToListAsync(ct);

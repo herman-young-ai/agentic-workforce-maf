@@ -1,13 +1,6 @@
+using AgenticWorkforce.Domain.Queries;
+
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
-
-/// <summary>
-/// State of a dispatched execution. <see cref="Pending"/> means the message
-/// is on the queue but no Worker has consumed it yet; <see cref="Picked"/>
-/// means a Worker is processing; the others are terminal.
-/// </summary>
-public enum ExecutionState { Pending, Picked, Completed, Failed }
-
-public record ExecutionStatus(Guid ExecutionId, Guid ProjectId, ExecutionState State);
 
 /// <summary>
 /// Repository that wraps the execution-dispatch queue (Redis Stream in

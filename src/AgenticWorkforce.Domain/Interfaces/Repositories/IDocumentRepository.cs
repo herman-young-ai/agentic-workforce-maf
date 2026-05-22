@@ -1,14 +1,8 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Pagination;
-using Pgvector;
+using AgenticWorkforce.Domain.Queries;
 
 namespace AgenticWorkforce.Domain.Interfaces.Repositories;
-
-/// <summary>
-/// Pair of (chunk, similarity) returned by vector search across document
-/// chunks. <see cref="Score"/> is cosine similarity in [0, 1].
-/// </summary>
-public record DocumentChunkMatch(DocumentChunk Chunk, double Score);
 
 /// <summary>
 /// Repository for uploaded reference documents and their text-extracted
@@ -35,7 +29,7 @@ public interface IDocumentRepository
     /// </summary>
     Task<IReadOnlyList<DocumentChunkMatch>> SearchChunksAsync(
         Guid projectId,
-        Vector queryEmbedding,
+        float[] queryEmbedding,
         int limit,
         CancellationToken ct = default);
 }

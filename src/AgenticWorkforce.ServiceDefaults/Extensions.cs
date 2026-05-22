@@ -32,12 +32,12 @@ public static class Extensions
 
     public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder)
     {
-        builder.Logging.AddOpenTelemetry(logging =>
-        {
-            logging.IncludeFormattedMessage = true;
-            logging.IncludeScopes = true;
-        });
-
+        // OTel logging is intentionally NOT wired here. Logs flow through
+        // Serilog (see TelemetryExtensions.AddObservability) and out to OTLP
+        // via Serilog.Sinks.OpenTelemetry. The single Serilog path ensures
+        // PII masking (Email/IBAN) applies to every log record — including
+        // the ones exported to the OTLP collector — which would not be the
+        // case if a parallel OTel logger provider ran alongside Serilog.
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics =>
             {

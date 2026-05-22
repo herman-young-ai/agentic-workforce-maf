@@ -1,6 +1,7 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Pagination;
+using AgenticWorkforce.Domain.Queries;
 using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
@@ -44,19 +45,24 @@ internal sealed class DocumentRepository(AppDbContext db) : IDocumentRepository
 
     public async Task<IReadOnlyList<DocumentChunkMatch>> SearchChunksAsync(
         Guid projectId,
-        Vector queryEmbedding,
+        float[] queryEmbedding,
         int limit,
         CancellationToken ct = default)
     {
-        // Join chunks to documents so we can exclude retracted ones. Score is
-        // 1 - cosine_distance/2 to map the [0, 2] distance to [0, 1] similarity.
+        // The Domain interface accepts plain float[] so callers don't need
+        // a Pgvector dependency. Conversion to Pgvector.Vector happens here,
+        // at the storage boundary where the EF-translated pgvector LINQ
+        // extensions live. Join chunks to documents so we can exclude
+        // retracted ones; score is 1 - cosine_distance/2 to map the [0, 2]
+        // distance to a [0, 1] similarity.
+        var pgQuery = new Vector(queryEmbedding);
         var rows = await (
             from chunk in db.DocumentChunks.AsNoTracking()
             join doc in db.ProjectDocuments.AsNoTracking() on chunk.DocumentId equals doc.Id
             where doc.ProjectId == projectId
                && doc.RetractedAt == null
                && chunk.Embedding != null
-            select new { Chunk = chunk, Distance = chunk.Embedding!.CosineDistance(queryEmbedding) }
+            select new { Chunk = chunk, Distance = chunk.Embedding!.CosineDistance(pgQuery) }
         )
             .OrderBy(r => r.Distance)
             .Take(limit)

@@ -1,7 +1,9 @@
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Queries;
 using AgenticWorkforce.Domain.Pagination;
+using AgenticWorkforce.Domain.Services;
 using AgenticWorkforce.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -103,6 +105,9 @@ internal sealed class TaskRepository(AppDbContext db) : ITaskRepository
 
         foreach (var task in tasks)
         {
+            // Endpoint-level constraint mirrors ApproveTask: bulk-approve is
+            // Proposed-only. The CanTransition check is the matrix-owned
+            // invariant (defends against drift if the rule table changes).
             if (task.Status != TaskStatus.Proposed)
             {
                 items.Add(new BulkApproveItem(task.Id, false,
@@ -110,7 +115,14 @@ internal sealed class TaskRepository(AppDbContext db) : ITaskRepository
                 continue;
             }
 
-            if (task.CreatedById.HasValue && task.CreatedById == approverId)
+            if (!TaskStateValidator.CanTransition(task.Status, TaskStatus.Approved))
+            {
+                items.Add(new BulkApproveItem(task.Id, false,
+                    $"Lifecycle forbids {task.Status} -> Approved transition."));
+                continue;
+            }
+
+            if (!SegregationOfDuties.IsAllowed(task.CreatedById, approverId))
             {
                 items.Add(new BulkApproveItem(task.Id, false,
                     "Segregation of duties: creator cannot approve their own task."));

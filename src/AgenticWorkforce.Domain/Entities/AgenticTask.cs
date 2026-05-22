@@ -53,6 +53,14 @@ public class AgenticTask : ProjectScopedEntity
     public ICollection<HumanInputRequest> HumanInputRequests { get; set; } = [];
 }
 
+/// <summary>
+/// One pass/fail record per execution attempt of a task. The schema is in
+/// place from the initial migration so analytics queries don't need a
+/// retrofit, but Api currently has no write path — rows are populated by the
+/// Worker's agent-runtime pipeline (Phase 5+, planned with the Durable Task
+/// orchestrator + IAgentRuntime implementation). Read-only queries against
+/// existing rows are safe today.
+/// </summary>
 public class TaskAttempt : TaskScopedEntity
 {
     public int AttemptNumber { get; set; }
@@ -69,6 +77,13 @@ public class TaskAttempt : TaskScopedEntity
     public decimal CostUsd { get; set; }
 }
 
+/// <summary>
+/// Edge in the task dependency DAG: <see cref="TaskId"/> requires
+/// <see cref="DependsOnTaskId"/> to be in a terminal state before it can run.
+/// Like <see cref="TaskAttempt"/>, the schema exists from the initial
+/// migration but no Api write path is wired — the workflow engine (Phase 5+)
+/// owns dependency creation and resolution.
+/// </summary>
 public class TaskDependency
 {
     public Guid TaskId { get; set; }

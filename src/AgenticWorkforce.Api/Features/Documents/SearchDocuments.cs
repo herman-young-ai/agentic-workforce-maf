@@ -4,7 +4,6 @@ using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using Microsoft.AspNetCore.Mvc;
-using Pgvector;
 
 namespace AgenticWorkforce.Api.Features.Documents;
 
@@ -41,8 +40,8 @@ public static class SearchDocuments
             throw new ValidationException("Query is required.");
 
         var limit = Math.Clamp(request.Limit, 1, 50);
-        var queryVec = new Vector(await embeddings.EmbedAsync(request.Query, ct));
-        var matches = await repo.SearchChunksAsync(projectId, queryVec, limit, ct);
+        var queryEmbedding = await embeddings.EmbedAsync(request.Query, ct);
+        var matches = await repo.SearchChunksAsync(projectId, queryEmbedding, limit, ct);
 
         return Results.Ok(matches.Select(m => new Match(
             m.Chunk.Id, m.Chunk.DocumentId, m.Chunk.ChunkIndex, m.Chunk.Content,
