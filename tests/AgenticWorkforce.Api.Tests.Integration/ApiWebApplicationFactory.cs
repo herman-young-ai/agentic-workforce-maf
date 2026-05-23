@@ -41,6 +41,14 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
     public string ConnectionString => _postgres.GetConnectionString();
     public string RedisConnectionString => _redis.GetConnectionString();
 
+    /// <summary>
+    /// Per-test-run scratch directory for LocalFileDocumentStore. Avoids
+    /// /tmp pollution and lets parallel test classes use isolated roots.
+    /// </summary>
+    private readonly string _documentStoreRoot = Path.Combine(
+        Path.GetTempPath(),
+        $"awf-tests-{Guid.NewGuid():N}");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -49,7 +57,8 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
             cfg.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:agenticworkforce"] = _postgres.GetConnectionString(),
-                ["ConnectionStrings:redis"]            = _redis.GetConnectionString()
+                ["ConnectionStrings:redis"]            = _redis.GetConnectionString(),
+                ["DocumentStore:BasePath"]             = _documentStoreRoot
             }));
 
         // Override JWT auth with the test auth handler so tests don't need real tokens
@@ -103,6 +112,18 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
         await _postgres.DisposeAsync();
         await _redis.DisposeAsync();
         await base.DisposeAsync();
+
+        // Best-effort cleanup of the per-run document scratch dir.
+        // Tests share nothing here; if a previous run crashed, leaking
+        // a few KB of files in /tmp is acceptable.
+        try
+        {
+            if (Directory.Exists(_documentStoreRoot))
+                Directory.Delete(_documentStoreRoot, recursive: true);
+        }
+        catch (IOException) { /* leave the bytes behind */ }
+        catch (UnauthorizedAccessException) { /* leave the bytes behind */ }
+
         GC.SuppressFinalize(this);
     }
 }

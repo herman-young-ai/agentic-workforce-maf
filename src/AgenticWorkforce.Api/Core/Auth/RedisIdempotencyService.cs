@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Infrastructure.Events;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 namespace AgenticWorkforce.Api.Core.Auth;
@@ -28,13 +29,15 @@ namespace AgenticWorkforce.Api.Core.Auth;
 /// sentinel and surfaces a 409 — by the time it retries, the first
 /// request has cached the real response.
 /// </summary>
-internal sealed class RedisIdempotencyService(IConnectionMultiplexer redis) : IIdempotencyService
+internal sealed class RedisIdempotencyService(
+    IConnectionMultiplexer redis,
+    IOptions<IdempotencyOptions> options) : IIdempotencyService
 {
-    // Real responses live for 24h; in-flight claims expire after 30s so
-    // a request that errors out without caching doesn't lock the key
-    // indefinitely.
-    private static readonly TimeSpan Ttl       = TimeSpan.FromHours(24);
-    private static readonly TimeSpan ClaimTtl  = TimeSpan.FromSeconds(30);
+    // TTLs are tunable via configuration — defaults documented in
+    // IdempotencyOptions. Snapshot at construction so the field reads are
+    // allocation-free per call.
+    private readonly TimeSpan _responseTtl = TimeSpan.FromHours(options.Value.ResponseTtlHours);
+    private readonly TimeSpan _claimTtl    = TimeSpan.FromSeconds(options.Value.ClaimTtlSeconds);
 
     // Sentinel value stored in Redis to mark "request in flight". A
     // syntactically-invalid-JSON token makes accidental deserialization
@@ -51,7 +54,7 @@ internal sealed class RedisIdempotencyService(IConnectionMultiplexer redis) : II
         // When.NotExists is the Redis SETNX semantic and avoids any
         // server-side TOCTOU window.
         var claimed = await db.StringSetAsync(
-            composed, ClaimSentinel, ClaimTtl, When.NotExists);
+            composed, ClaimSentinel, _claimTtl, When.NotExists);
         if (claimed) return default;  // we own the work
 
         // Something is already there — either a real cached response or
@@ -75,7 +78,7 @@ internal sealed class RedisIdempotencyService(IConnectionMultiplexer redis) : II
         await db.StringSetAsync(
             Compose(userId, key),
             JsonSerializer.Serialize(response, WireJsonOptions.Default),
-            Ttl);
+            _responseTtl);
     }
 
     private static string Compose(Guid userId, string key) => $"idempotency:{userId:N}:{key}";

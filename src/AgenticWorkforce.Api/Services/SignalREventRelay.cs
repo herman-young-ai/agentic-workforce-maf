@@ -48,7 +48,12 @@ internal sealed class SignalREventRelay(
         {
             try
             {
-                await RunSubscriptionAsync(ct);
+                // The reset callback fires on the first message of a fresh
+                // subscription — that's the signal "this subscription is
+                // genuinely healthy". Without it, a long-lived subscription
+                // that faults after weeks of success would restart at the
+                // cached high backoff inherited from a prior fault burst.
+                await RunSubscriptionAsync(onHealthy: () => backoff = InitialBackoff, ct);
                 return; // RunSubscriptionAsync only exits cleanly when ct cancels.
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -76,15 +81,25 @@ internal sealed class SignalREventRelay(
         }
     }
 
-    private async Task RunSubscriptionAsync(CancellationToken ct)
+    private async Task RunSubscriptionAsync(Action onHealthy, CancellationToken ct)
     {
         logger.LogInformation(
             "SignalR event relay starting — subscribing to {Pattern}",
             RedisChannels.AllProjectEventsPattern);
 
+        var healthyReported = false;
+
         await foreach (var (channel, message) in redisPubSub.SubscribePatternAsync(
             RedisChannels.AllProjectEventsPattern, ct))
         {
+            // First message means the subscription handshake succeeded
+            // and Redis is delivering — reset the caller's backoff state.
+            if (!healthyReported)
+            {
+                onHealthy();
+                healthyReported = true;
+            }
+
             try
             {
                 var projectIdSegment = RedisChannels.TryExtractProjectIdSegment(channel);

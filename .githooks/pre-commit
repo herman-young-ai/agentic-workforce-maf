@@ -62,14 +62,18 @@ CQI_JSON=$(./scripts/code-quality.sh "$SLN" --json --no-coverage --no-semgrep 2>
 
 CQI=$(echo "$CQI_JSON"  | python3 -c "import json,sys; print(int(json.load(sys.stdin)['cqi']))")
 BAND=$(echo "$CQI_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['band'])")
-COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+# The hook runs BEFORE the commit lands, so `git rev-parse HEAD` would
+# resolve to the PARENT of the in-flight commit — making "commit:" lag by
+# one every time. Record the staged tree hash instead (which IS the
+# tree this CQI report describes) and label accordingly.
+TREE=$(git write-tree 2>/dev/null | cut -c1-12 || echo "unknown")
 NOW=$(date -u +"%Y-%m-%d %H:%M UTC")
 
 # -- 4. Write .codemap/quality.md --
 mkdir -p .codemap
-python3 - "$CQI_JSON" "$COMMIT" "$NOW" "$CQI_MIN" > .codemap/quality.md <<'PY'
+python3 - "$CQI_JSON" "$TREE" "$NOW" "$CQI_MIN" > .codemap/quality.md <<'PY'
 import json, sys
-raw, commit, now, min_score = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+raw, tree, now, min_score = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 d = json.loads(raw)
 cqi  = d['cqi']
 band = d['band']
@@ -79,7 +83,7 @@ kloc = d.get('kloc', '?')
 lines = [
     f"# C# Code Quality Index (CQI)\n",
     f"**Score: {cqi} / 100 — {band.title()}**  ",
-    f"*(minimum: {min_score} | commit: `{commit}` | {now})*\n",
+    f"*(minimum: {min_score} | tree: `{tree}` | {now})*\n",
     f"| Metric | Value |",
     f"|--------|------:|",
     f"| KLOC   | {kloc} |\n",

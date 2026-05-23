@@ -2,6 +2,7 @@ using Azure.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
@@ -14,6 +15,7 @@ using AgenticWorkforce.Api.Core.Health;
 using AgenticWorkforce.Api.Core.Middleware;
 using AgenticWorkforce.Api.Hubs;
 using AgenticWorkforce.Api.Services;
+using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Infrastructure;
 using AgenticWorkforce.Infrastructure.Data;
 using AgenticWorkforce.ServiceDefaults;
@@ -64,7 +66,14 @@ builder.Services.AddAuthentication()
 
 builder.Services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, opts =>
 {
-    var clientId = builder.Configuration["AzureAd:ClientId"] ?? "";
+    // Missing client-id used to silently fall back to "" — which then made
+    // every JWT with an empty audience pass validation. Fail-fast on
+    // missing config; Audience legitimately falls back to ClientId per
+    // Microsoft.Identity.Web convention but ClientId is non-negotiable.
+    var clientId = builder.Configuration["AzureAd:ClientId"];
+    if (string.IsNullOrWhiteSpace(clientId))
+        throw new InvalidOperationException(
+            "AzureAd:ClientId is required (set via Aspire reference, env var, user-secrets, or Key Vault).");
     var audience = builder.Configuration["AzureAd:Audience"] ?? clientId;
 
     opts.TokenValidationParameters.ValidAudiences          = [audience, clientId, $"api://{clientId}"];
@@ -143,6 +152,11 @@ builder.Services.AddScoped<IProjectAuthorizationService, ProjectAuthorizationSer
 // RedisIdempotencyService replaces the Phase-4 in-memory stub so the cache
 // survives Api replica scale-out. The in-memory class is kept in source
 // for dev fallback / unit tests but is no longer the production binding.
+// IdempotencyOptions exposes the claim/response TTLs as configuration so
+// ops can tune them per environment without code changes.
+builder.Services
+    .AddOptions<IdempotencyOptions>()
+    .Bind(builder.Configuration.GetSection(IdempotencyOptions.SectionName));
 builder.Services.AddSingleton<IIdempotencyService, RedisIdempotencyService>();
 
 // -- Health checks --
@@ -182,8 +196,24 @@ builder.Services.AddRateLimiter(opts =>
 
     opts.OnRejected = async (ctx, ct) =>
     {
+        // Rate-limit responses must match the rest of the API's error
+        // contract (RFC 9457 ProblemDetails with a machine-readable code).
+        // Plain text here meant clients couldn't structurally identify
+        // 429s — see docs/005-standards/05-api-design-standards.md.
+        ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         ctx.HttpContext.Response.Headers["Retry-After"] = "60";
-        await ctx.HttpContext.Response.WriteAsync("Too many requests.", ct);
+        ctx.HttpContext.Response.ContentType = "application/problem+json";
+        var problem = new ProblemDetails
+        {
+            Status     = StatusCodes.Status429TooManyRequests,
+            Title      = "Too many requests. Please retry after 60 seconds.",
+            Extensions =
+            {
+                ["code"]    = ErrorCodes.RateLimited,
+                ["traceId"] = ctx.HttpContext.TraceIdentifier
+            }
+        };
+        await ctx.HttpContext.Response.WriteAsJsonAsync(problem, ct);
     };
 });
 

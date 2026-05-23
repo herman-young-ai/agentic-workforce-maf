@@ -131,10 +131,25 @@ public static class InfrastructureServiceExtensions
         // Service stubs — replaced in Phase 6+ (embedding provider) and Phase 11 (blob storage)
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();
 
-        var docRoot = configuration["DocumentStore:BasePath"]
-            ?? Path.Combine(Path.GetTempPath(), "agenticworkforce-docs");
-        Directory.CreateDirectory(docRoot);
-        services.AddScoped<IDocumentStore>(_ => new LocalFileDocumentStore(docRoot));
+        // Fail-fast on missing DocumentStore:BasePath, but defer the read
+        // into the DI factory so WebApplicationFactory's
+        // ConfigureAppConfiguration override applies (same lazy pattern as
+        // NpgsqlDataSource and IConnectionMultiplexer above). Reading it
+        // here in AddInfrastructure would freeze the appsettings.json
+        // sentinel and break every integration test.
+        services.AddScoped<IDocumentStore>(sp =>
+        {
+            const string PlaceholderBasePath = "__PROVIDED_AT_RUNTIME__";
+            var cfg = sp.GetRequiredService<IConfiguration>();
+            var docRoot = cfg["DocumentStore:BasePath"];
+            if (string.IsNullOrWhiteSpace(docRoot)
+                || string.Equals(docRoot, PlaceholderBasePath, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    "DocumentStore:BasePath is required (set via Aspire reference, env var, "
+                    + "user-secrets, or Key Vault — never default to a host temp directory).");
+            Directory.CreateDirectory(docRoot);
+            return new LocalFileDocumentStore(docRoot);
+        });
 
         return services;
     }

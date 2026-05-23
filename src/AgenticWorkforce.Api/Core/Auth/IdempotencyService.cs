@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using AgenticWorkforce.Domain.Exceptions;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Api.Core.Auth;
 
@@ -31,8 +32,6 @@ public interface IIdempotencyService
 /// </summary>
 internal sealed class InMemoryIdempotencyService : IIdempotencyService, IDisposable
 {
-    private static readonly TimeSpan Ttl           = TimeSpan.FromHours(24);
-    private static readonly TimeSpan ClaimTtl      = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(15);
 
     // Sentinel value stored against a key while a request is in flight.
@@ -40,15 +39,27 @@ internal sealed class InMemoryIdempotencyService : IIdempotencyService, IDisposa
     // share semantics — see that class for the full rationale.
     internal static readonly object ClaimSentinel = new();
 
+    private readonly TimeSpan _responseTtl;
+    private readonly TimeSpan _claimTtl;
     private readonly ConcurrentDictionary<string, (object Response, DateTime ExpiresAt)> _cache = new();
     private readonly Timer _sweepTimer;
     private bool _disposed;
 
-    public InMemoryIdempotencyService()
+    public InMemoryIdempotencyService(IOptions<IdempotencyOptions> options)
     {
+        _responseTtl = TimeSpan.FromHours(options.Value.ResponseTtlHours);
+        _claimTtl    = TimeSpan.FromSeconds(options.Value.ClaimTtlSeconds);
         _sweepTimer = new Timer(_ => SweepExpired(), state: null,
             dueTime: SweepInterval, period: SweepInterval);
     }
+
+    /// <summary>
+    /// Convenience parameterless ctor for unit tests that don't want to
+    /// build an <see cref="IOptions{T}"/> by hand. Uses the documented
+    /// defaults from <see cref="IdempotencyOptions"/>.
+    /// </summary>
+    public InMemoryIdempotencyService()
+        : this(Options.Create(new IdempotencyOptions())) { }
 
     public Task<T?> GetCachedResponseAsync<T>(Guid userId, string key, CancellationToken ct = default)
     {
@@ -57,7 +68,7 @@ internal sealed class InMemoryIdempotencyService : IIdempotencyService, IDisposa
         // Atomic claim: TryAdd succeeds only if no entry exists. Mirrors
         // the Redis SETNX semantic so this and RedisIdempotencyService
         // give the same concurrency guarantee under tests.
-        var claim = (ClaimSentinel, DateTime.UtcNow.Add(ClaimTtl));
+        var claim = (ClaimSentinel, DateTime.UtcNow.Add(_claimTtl));
         if (_cache.TryAdd(composed, claim))
             return Task.FromResult<T?>(default);  // we own the work
 
@@ -82,7 +93,7 @@ internal sealed class InMemoryIdempotencyService : IIdempotencyService, IDisposa
     {
         // Overwrites our own claim sentinel with the real response and
         // extends the TTL to the long-lived value.
-        _cache[Compose(userId, key)] = (response!, DateTime.UtcNow.Add(Ttl));
+        _cache[Compose(userId, key)] = (response!, DateTime.UtcNow.Add(_responseTtl));
         return Task.CompletedTask;
     }
 

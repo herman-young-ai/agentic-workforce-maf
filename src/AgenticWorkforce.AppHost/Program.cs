@@ -16,8 +16,11 @@ var api = builder.AddProject<Projects.AgenticWorkforce_Api>("api")
     .WithExternalHttpEndpoints();
 
 // -- Background Worker --
-builder.AddProject<Projects.AgenticWorkforce_Worker>("worker")
-    .WithReference(postgres)
-    .WithReference(redis);
+// Restore when Phase 6 lands the agent runtime + Durable Task hosted
+// services. Until then the Worker process is a no-op that consumes a
+// Postgres connection and a Redis multiplexer for nothing.
+// builder.AddProject<Projects.AgenticWorkforce_Worker>("worker")
+//     .WithReference(postgres)
+//     .WithReference(redis);
 
 builder.Build().Run();

@@ -68,6 +68,23 @@ internal sealed class ProjectEventDispatchInterceptor(
         _pending = null;
         if (pending is null) return await base.SavedChangesAsync(eventData, result, cancellationToken);
 
+        // SavedChangesAsync fires after each SaveChanges DB call returns,
+        // which for an EXPLICIT transaction is BEFORE the user commits.
+        // Dispatching to Redis here would publish events that a later
+        // tx.Rollback() would un-persist — phantom events for clients.
+        // Fail fast rather than risk silent inconsistency. The right
+        // solution when explicit transactions become necessary is to hook
+        // tx.Committed; until then, no caller in the codebase uses them.
+        if (eventData.Context?.Database.CurrentTransaction is not null)
+        {
+            throw new InvalidOperationException(
+                "ProjectEventDispatchInterceptor cannot dispatch events while a manual "
+                + "DbContext transaction is open — the interceptor fires before the "
+                + "transaction commits, so a later rollback would orphan the published "
+                + "Redis messages. Either publish events outside the BeginTransaction "
+                + "scope, or wire transaction-commit hooks to call dispatch explicitly.");
+        }
+
         // Dispatch sequentially. The volume is low (one or two events per
         // endpoint call typically) and a parallel fan-out would complicate
         // error attribution without buying anything material.
