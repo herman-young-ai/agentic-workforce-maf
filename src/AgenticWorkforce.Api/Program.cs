@@ -1,14 +1,19 @@
 using Azure.Identity;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
 using NetEscapades.AspNetCore.SecurityHeaders;
+using StackExchange.Redis;
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Api.Core.Exceptions;
 using AgenticWorkforce.Api.Core.Extensions;
 using AgenticWorkforce.Api.Core.Health;
 using AgenticWorkforce.Api.Core.Middleware;
+using AgenticWorkforce.Api.Hubs;
+using AgenticWorkforce.Api.Services;
 using AgenticWorkforce.Infrastructure;
 using AgenticWorkforce.Infrastructure.Data;
 using AgenticWorkforce.ServiceDefaults;
@@ -49,6 +54,14 @@ builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
 
+// SSE token scheme — registered separately because the Microsoft.Identity.Web
+// builder doesn't expose AddScheme. Subsequent AddAuthentication() returns
+// the same underlying builder so the scheme is appended. Opt-in via the
+// "SseStream" policy; non-stream endpoints keep the default JWT-only policy.
+builder.Services.AddAuthentication()
+    .AddScheme<AuthenticationSchemeOptions, SseTokenAuthHandler>(
+        SseTokenAuthHandler.SchemeName, _ => { });
+
 builder.Services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, opts =>
 {
     var clientId = builder.Configuration["AzureAd:ClientId"] ?? "";
@@ -85,16 +98,52 @@ builder.Services.AddAuthorizationBuilder()
         Roles.AgentReadOnly, Roles.Agent))
     .AddPolicy(Policies.RequireAuthenticatedAny, p => p.RequireRole(
         Roles.Viewer, Roles.Operator, Roles.Reviewer, Roles.Owner, Roles.PlatformAdmin,
-        Roles.Agent, Roles.AgentReadOnly));
+        Roles.Agent, Roles.AgentReadOnly))
+    // SSE stream policy accepts EITHER the JWT bearer scheme (rich CLI
+    // and server-to-server clients) OR the single-use SseToken scheme
+    // (browser EventSource). Endpoint-scoped opt-in via
+    // `.RequireAuthorization("SseStream")` on the stream routes only.
+    .AddPolicy("SseStream", p => p
+        .AddAuthenticationSchemes(
+            SseTokenAuthHandler.SchemeName,
+            JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser());
 
-// -- Database + Infrastructure (PostgreSQL + pgvector, repositories, services) --
+// -- Database + Infrastructure (PostgreSQL + pgvector, Redis, repositories, services) --
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// -- SignalR + Redis backplane --
+// ConnectionFactory is invoked lazily by SignalR at hub-start time, AFTER
+// ConfigureAppConfiguration overrides have landed on builder.Configuration.
+// Reading the connection string at registration time (the eager overload)
+// would freeze the appsettings.json value and break integration tests'
+// Testcontainers override — same timing trap we hit with the Npgsql data
+// source in Phase 4.
+builder.Services.AddSignalR()
+    .AddStackExchangeRedis(opts =>
+    {
+        opts.Configuration.ChannelPrefix = RedisChannel.Literal("agentic:");
+        opts.ConnectionFactory = async writer =>
+        {
+            var cs = builder.Configuration.GetConnectionString("redis")
+                ?? throw new InvalidOperationException(
+                    "Connection string 'redis' is required for the SignalR backplane.");
+            return await ConnectionMultiplexer.ConnectAsync(cs, writer);
+        };
+    });
+
+// SignalREventRelay bridges Redis pub/sub → SignalR groups so the Worker
+// (or any publisher) can fan out without depending on hub types.
+builder.Services.AddHostedService<SignalREventRelay>();
 
 // -- Core services --
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
 builder.Services.AddScoped<IProjectAuthorizationService, ProjectAuthorizationService>();
-builder.Services.AddSingleton<IIdempotencyService, InMemoryIdempotencyService>();
+// RedisIdempotencyService replaces the Phase-4 in-memory stub so the cache
+// survives Api replica scale-out. The in-memory class is kept in source
+// for dev fallback / unit tests but is no longer the production binding.
+builder.Services.AddSingleton<IIdempotencyService, RedisIdempotencyService>();
 
 // -- Health checks --
 builder.Services.AddHealthChecks()
@@ -212,6 +261,9 @@ app.UseAuthorization();
 // `public static void MapEndpoints(IEndpointRouteBuilder app)` is registered
 // automatically. Adding an endpoint is a single-file change.
 app.MapFeatureSlices();
+
+// SignalR hub for live project + session updates.
+app.MapHub<ProjectHub>("/hubs/project");
 
 app.MapDefaultEndpoints();
 

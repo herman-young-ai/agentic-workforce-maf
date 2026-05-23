@@ -126,6 +126,20 @@
           "Grpc.Core.Api": "2.70.0"
         }
       },
+      "MessagePack": {
+        "type": "Transitive",
+        "resolved": "2.5.187",
+        "contentHash": "uW4j8m4Nc+2Mk5n6arOChavJ9bLjkis0qWASOj2h2OwmfINuzYv+mjCHUymrYhmyyKTu3N+ObtTXAY4uQ7jIhg==",
+        "dependencies": {
+          "MessagePack.Annotations": "2.5.187",
+          "Microsoft.NET.StringTools": "17.6.3"
+        }
+      },
+      "MessagePack.Annotations": {
+        "type": "Transitive",
+        "resolved": "2.5.187",
+        "contentHash": "/IvvMMS8opvlHjEJ/fR2Cal4Co726Kj77Z8KiohFhuHfLHHmb9uUxW5+tSCL4ToKFfkQlrS3HD638mRq83ySqA=="
+      },
       "Microsoft.ApplicationInsights": {
         "type": "Transitive",
         "resolved": "3.1.1",
@@ -630,6 +644,11 @@
           "System.IdentityModel.Tokens.Jwt": "8.15.0"
         }
       },
+      "Microsoft.NET.StringTools": {
+        "type": "Transitive",
+        "resolved": "17.6.3",
+        "contentHash": "N0ZIanl1QCgvUumEL1laasU0a7sOE5ZwLZVTn0pAePnfhq8P7SvTjF8Axq+CnavuQkmdQpGNXQ1efZtu5kDFbA=="
+      },
       "Microsoft.OpenApi": {
         "type": "Transitive",
         "resolved": "1.6.14",
@@ -708,6 +727,11 @@
         "dependencies": {
           "OpenTelemetry.PersistentStorage.Abstractions": "1.0.3"
         }
+      },
+      "Pipelines.Sockets.Unofficial": {
+        "type": "Transitive",
+        "resolved": "2.2.16",
+        "contentHash": "nonu9l0YrZH6krVYbskBjE7uG0VMAnvOQ9PU+RmzUsy+++vHkqzzCkHRoP877OiA3iRTxJyNDLfpcU8hrJ3/YQ=="
       },
       "Polly.Core": {
         "type": "Transitive",
@@ -826,6 +850,11 @@
           "Microsoft.IdentityModel.Tokens": "8.15.0"
         }
       },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.2",
+        "contentHash": "AKJknIFi9O3+rGExxTry188JPvUoZAPcCtS2qdqyFhIzsxQ1Ap94BeGDG0VzVEHakhmRxmJtVih6TsHoghIt/g=="
+      },
       "System.Memory.Data": {
         "type": "Transitive",
         "resolved": "10.0.3",
@@ -903,8 +932,10 @@
           "Azure.Extensions.AspNetCore.Configuration.Secrets": "[1.5.1, )",
           "Azure.Identity": "[1.21.0, )",
           "Microsoft.ApplicationInsights.AspNetCore": "[3.1.1, )",
+          "Microsoft.AspNetCore.SignalR.StackExchangeRedis": "[10.0.8, )",
           "Microsoft.Identity.Web": "[4.9.0, )",
           "NetEscapades.AspNetCore.SecurityHeaders": "[1.3.1, )",
+          "StackExchange.Redis": "[2.13.1, )",
           "Swashbuckle.AspNetCore": "[6.9.0, )"
         }
       },
@@ -922,7 +953,8 @@
           "Microsoft.EntityFrameworkCore": "[10.0.8, )",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.8, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.1, )",
-          "Pgvector.EntityFrameworkCore": "[0.3.0, )"
+          "Pgvector.EntityFrameworkCore": "[0.3.0, )",
+          "StackExchange.Redis": "[2.13.1, )"
         }
       },
       "agenticworkforce.servicedefaults": {
@@ -984,6 +1016,17 @@
           "OpenTelemetry.Instrumentation.AspNetCore": "1.15.2",
           "OpenTelemetry.Instrumentation.Http": "1.15.1",
           "OpenTelemetry.Instrumentation.SqlClient": "1.15.2"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.StackExchangeRedis": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.8, )",
+        "resolved": "10.0.8",
+        "contentHash": "12QE45J4nR04PIyof9hsKar4U3fyp64MaBkN/g35cLtLjII3NmA5x/1a8cAgLL3EM0AV/jT8l+UiFijvtuKx/Q==",
+        "dependencies": {
+          "MessagePack": "2.5.187",
+          "Microsoft.Extensions.Options": "10.0.8",
+          "StackExchange.Redis": "2.7.27"
         }
       },
       "Microsoft.EntityFrameworkCore": {
@@ -1186,6 +1229,17 @@
           "Google.Protobuf": "3.30.1",
           "Grpc.Net.Client": "2.70.0",
           "Serilog": "4.2.0"
+        }
+      },
+      "StackExchange.Redis": {
+        "type": "CentralTransitive",
+        "requested": "[2.13.1, )",
+        "resolved": "2.13.1",
+        "contentHash": "jC5wkRe8K6HPoDENUws+fl2d7+GKz+ky8SWEDzYzPx6hHt2EwxWm01gmYPWLzlT49jfYYap0guB5bExtyX9aIQ==",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.0",
+          "Pipelines.Sockets.Unofficial": "2.2.16",
+          "System.IO.Hashing": "10.0.2"
         }
       },
       "Swashbuckle.AspNetCore": {

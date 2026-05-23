@@ -2,11 +2,13 @@ using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using AgenticWorkforce.Domain.Services;
 using AgenticWorkforce.Infrastructure.Data;
+using AgenticWorkforce.Infrastructure.Events;
 using AgenticWorkforce.Infrastructure.Repositories;
 using AgenticWorkforce.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using StackExchange.Redis;
 
 namespace AgenticWorkforce.Infrastructure;
 
@@ -49,6 +51,27 @@ public static class InfrastructureServiceExtensions
                     + "environment variable, user-secrets, or Key Vault — never hardcoded in appsettings.json).");
             return DataSourceFactory.Create(cs);
         });
+
+        // IConnectionMultiplexer is a singleton (the StackExchange.Redis
+        // guidance is one multiplexer per app, NOT per call). Lazy factory
+        // mirrors the NpgsqlDataSource pattern so WebApplicationFactory's
+        // config overrides reach the connection string.
+        // The same multiplexer backs the SignalR backplane registered in
+        // Api/Program.cs, our IRedisPubSubService, and Phase-5+
+        // RedisIdempotencyService — one connection pool for all three.
+        services.AddSingleton<IConnectionMultiplexer>(sp =>
+        {
+            var cfg = sp.GetRequiredService<IConfiguration>();
+            var cs = cfg.GetConnectionString("redis");
+            if (string.IsNullOrWhiteSpace(cs))
+                throw new InvalidOperationException(
+                    "Connection string 'redis' is required (Aspire reference, env var, or Key Vault).");
+            return ConnectionMultiplexer.Connect(cs);
+        });
+
+        services.AddSingleton<IRedisPubSubService, RedisPubSubService>();
+        // RedisEventPublisher is scoped because it holds an AppDbContext.
+        services.AddScoped<IEventPublisher, RedisEventPublisher>();
 
         services.AddScoped<AuditInterceptor>();
 

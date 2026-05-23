@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
+using Testcontainers.Redis;
 
 namespace AgenticWorkforce.Api.Tests.Integration;
 
@@ -24,9 +25,21 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
         .WithImage("pgvector/pgvector:pg16")
         .Build();
 
-    public async Task StartAsync() => await _postgres.StartAsync();
+    // Phase 5: a real Redis is required for IConnectionMultiplexer + SignalR
+    // backplane + RedisIdempotencyService + RedisEventPublisher to start.
+    // Project policy is no mocks (Principle: real dependencies in tests).
+    private readonly RedisContainer _redis = new RedisBuilder()
+        .WithImage("redis:7-alpine")
+        .Build();
+
+    public async Task StartAsync()
+    {
+        // Both can boot concurrently — they share nothing.
+        await Task.WhenAll(_postgres.StartAsync(), _redis.StartAsync());
+    }
 
     public string ConnectionString => _postgres.GetConnectionString();
+    public string RedisConnectionString => _redis.GetConnectionString();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -35,7 +48,8 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
         builder.ConfigureAppConfiguration(cfg =>
             cfg.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:agenticworkforce"] = _postgres.GetConnectionString()
+                ["ConnectionStrings:agenticworkforce"] = _postgres.GetConnectionString(),
+                ["ConnectionStrings:redis"]            = _redis.GetConnectionString()
             }));
 
         // Override JWT auth with the test auth handler so tests don't need real tokens
@@ -87,6 +101,7 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
     public override async ValueTask DisposeAsync()
     {
         await _postgres.DisposeAsync();
+        await _redis.DisposeAsync();
         await base.DisposeAsync();
         GC.SuppressFinalize(this);
     }

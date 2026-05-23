@@ -18,6 +18,10 @@
     <PackageReference Include="Microsoft.Identity.Web" />
     <PackageReference Include="NetEscapades.AspNetCore.SecurityHeaders" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
+    <!-- Phase 5: SignalR Redis backplane for horizontal scale; StackExchange.Redis
+         for the IConnectionMultiplexer shared with the pub/sub + idempotency services. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
+    <PackageReference Include="StackExchange.Redis" />
   </ItemGroup>
 
   <ItemGroup>
