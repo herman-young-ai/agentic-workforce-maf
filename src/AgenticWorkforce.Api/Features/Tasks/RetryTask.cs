@@ -1,12 +1,11 @@
-using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using AgenticWorkforce.Domain.Services;
+using AgenticWorkforce.Infrastructure.Events;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
 
@@ -51,15 +50,11 @@ public static class RetryTask
         task.Status = TaskStatus.Approved;
         task.RetryCount += 1;
 
-        await publisher.PublishAsync(new ProjectEvent
-        {
-            ProjectId = projectId,
-            TaskId    = task.Id,
-            EventType = EventTypes.TaskRetried,
-            Source    = user.Email,
-            Severity  = EventSeverity.Info,
-            Data      = JsonSerializer.Serialize(new { task.Id, task.Objective, task.RetryCount, task.MaxRetries })
-        }, ct);
+        await publisher.PublishAsync(
+            ProjectEventBuilder.ForTask(
+                projectId, task.Id, EventTypes.TaskRetried, user.Email,
+                new { task.Objective, task.RetryCount, task.MaxRetries }),
+            ct);
 
         await repo.UpdateAsync(task, ct);
 

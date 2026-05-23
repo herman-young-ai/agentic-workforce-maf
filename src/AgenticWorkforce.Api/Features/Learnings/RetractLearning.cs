@@ -1,11 +1,10 @@
-using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
+using AgenticWorkforce.Infrastructure.Events;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Learnings;
@@ -40,14 +39,12 @@ public static class RetractLearning
         if (l.ProjectId != projectId)
             throw new NotFoundException("Learning", learningId);
 
-        await publisher.PublishAsync(new ProjectEvent
-        {
-            ProjectId = projectId,
-            EventType = EventTypes.LearningRetracted,
-            Source    = user.Email,
-            Severity  = EventSeverity.Warning,
-            Data      = JsonSerializer.Serialize(new { LearningId = learningId, l.Title, request.Reason })
-        }, ct);
+        await publisher.PublishAsync(
+            ProjectEventBuilder.ForProject(
+                projectId, EventTypes.LearningRetracted, user.Email,
+                new { LearningId = learningId, l.Title, request.Reason },
+                severity: EventSeverity.Warning),
+            ct);
 
         await repo.RetractAsync(learningId, user.Email, request.Reason, ct);
         return Results.NoContent();

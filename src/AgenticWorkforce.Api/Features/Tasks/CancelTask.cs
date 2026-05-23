@@ -1,12 +1,11 @@
-using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using AgenticWorkforce.Domain.Services;
+using AgenticWorkforce.Infrastructure.Events;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
 
@@ -42,15 +41,11 @@ public static class CancelTask
         var previousStatus = task.Status;
         task.Status = TaskStatus.Cancelled;
 
-        await publisher.PublishAsync(new ProjectEvent
-        {
-            ProjectId = projectId,
-            TaskId    = task.Id,
-            EventType = EventTypes.TaskCancelled,
-            Source    = user.Email,
-            Severity  = EventSeverity.Info,
-            Data      = JsonSerializer.Serialize(new { task.Id, task.Objective, PreviousStatus = previousStatus.ToString() })
-        }, ct);
+        await publisher.PublishAsync(
+            ProjectEventBuilder.ForTask(
+                projectId, task.Id, EventTypes.TaskCancelled, user.Email,
+                new { task.Objective, PreviousStatus = previousStatus.ToString() }),
+            ct);
 
         await repo.UpdateAsync(task, ct);
 

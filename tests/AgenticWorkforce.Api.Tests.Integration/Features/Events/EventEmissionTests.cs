@@ -10,10 +10,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-// Disambiguate AgenticWorkforce.Domain.Enums.TaskStatus from
-// System.Threading.Tasks.TaskStatus (both are in scope via implicit usings).
-using TaskStatus = AgenticWorkforce.Domain.Enums.TaskStatus;
-
 namespace AgenticWorkforce.Api.Tests.Integration.Features.Events;
 
 /// <summary>
@@ -87,7 +83,7 @@ public class EventEmissionTests(ApiWebApplicationFactory factory) : IAsyncLifeti
         // A different reviewer approves (SoD: creator ≠ approver).
         var reviewerId = Guid.NewGuid();
         await _factory.SeedUserAsync(reviewerId, "reviewer@events.local");
-        await AddReviewerAsync(ownerClient, projectId, reviewerId, "reviewer@events.local");
+        await AddReviewerAsync(ownerClient, projectId, reviewerId);
         var reviewerClient = _factory.CreateAuthenticatedClient(reviewerId, "reviewer@events.local", Roles.Reviewer);
 
         var approveResp = await reviewerClient.PostAsync(
@@ -120,7 +116,7 @@ public class EventEmissionTests(ApiWebApplicationFactory factory) : IAsyncLifeti
     }
 
     private static async Task AddReviewerAsync(
-        HttpClient ownerClient, Guid projectId, Guid reviewerId, string _)
+        HttpClient ownerClient, Guid projectId, Guid reviewerId)
     {
         var addResp = await ownerClient.PostAsJsonAsync(
             $"/api/v1/projects/{projectId}/members",

@@ -4,7 +4,6 @@ using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Api.Features.Projects;
 using AgenticWorkforce.Api.Features.Tasks;
 using AgenticWorkforce.Domain.Enums;
-using TaskStatus = AgenticWorkforce.Domain.Enums.TaskStatus;
 using AgenticWorkforce.Infrastructure.Data;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;

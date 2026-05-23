@@ -1,11 +1,10 @@
-using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
+using AgenticWorkforce.Infrastructure.Events;
 
 namespace AgenticWorkforce.Api.Features.Projects;
 
@@ -36,14 +35,11 @@ public static class PauseProject
 
         project.Status = ProjectStatus.Paused;
 
-        await publisher.PublishAsync(new ProjectEvent
-        {
-            ProjectId = projectId,
-            EventType = EventTypes.ProjectPaused,
-            Source    = user.Email,
-            Severity  = EventSeverity.Info,
-            Data      = JsonSerializer.Serialize(new { project.Id, project.Name })
-        }, ct);
+        await publisher.PublishAsync(
+            ProjectEventBuilder.ForProject(
+                projectId, EventTypes.ProjectPaused, user.Email,
+                new { project.Name }),
+            ct);
 
         await repo.UpdateAsync(project, ct);
 

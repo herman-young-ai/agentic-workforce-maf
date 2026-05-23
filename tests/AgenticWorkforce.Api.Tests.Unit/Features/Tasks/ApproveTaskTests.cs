@@ -2,7 +2,6 @@ using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Services;
 using FluentAssertions;
 using Xunit;
-using TaskStatus = AgenticWorkforce.Domain.Enums.TaskStatus;
 
 namespace AgenticWorkforce.Api.Tests.Unit.Features.Tasks;
 

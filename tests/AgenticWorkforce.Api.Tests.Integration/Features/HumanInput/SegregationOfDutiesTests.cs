@@ -9,7 +9,6 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
-using TaskStatus = AgenticWorkforce.Domain.Enums.TaskStatus;
 
 namespace AgenticWorkforce.Api.Tests.Integration.Features.HumanInput;
 

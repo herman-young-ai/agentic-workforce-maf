@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Xunit;
 
 namespace AgenticWorkforce.Api.Tests.Integration;
@@ -22,6 +23,8 @@ namespace AgenticWorkforce.Api.Tests.Integration;
 /// explicitly or use a private fixture.
 /// </summary>
 [CollectionDefinition(Name)]
+[SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix",
+    Justification = "xUnit collection-definition naming convention.")]
 public sealed class IntegrationTestCollection : ICollectionFixture<ApiWebApplicationFactory>
 {
     public const string Name = "Integration";

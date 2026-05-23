@@ -1,12 +1,11 @@
-using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
-using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using AgenticWorkforce.Domain.Services;
+using AgenticWorkforce.Infrastructure.Events;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
@@ -55,15 +54,11 @@ public static class RejectTask
         task.Status = TaskStatus.Cancelled;
         task.OutputSummary = $"Rejected: {request.Reason}";
 
-        await publisher.PublishAsync(new ProjectEvent
-        {
-            ProjectId = projectId,
-            TaskId    = task.Id,
-            EventType = EventTypes.TaskRejected,
-            Source    = user.Email,
-            Severity  = EventSeverity.Info,
-            Data      = JsonSerializer.Serialize(new { task.Id, task.Objective, request.Reason })
-        }, ct);
+        await publisher.PublishAsync(
+            ProjectEventBuilder.ForTask(
+                projectId, task.Id, EventTypes.TaskRejected, user.Email,
+                new { task.Objective, request.Reason }),
+            ct);
 
         await repo.UpdateAsync(task, ct);
 

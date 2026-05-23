@@ -1,4 +1,3 @@
-using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
@@ -6,6 +5,7 @@ using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
+using AgenticWorkforce.Infrastructure.Events;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Tasks;
@@ -75,15 +75,11 @@ public static class CreateTask
             FormatVersion = "1.0"
         };
 
-        await publisher.PublishAsync(new ProjectEvent
-        {
-            ProjectId = projectId,
-            TaskId    = task.Id,
-            EventType = EventTypes.TaskCreated,
-            Source    = user.Email,
-            Severity  = EventSeverity.Info,
-            Data      = JsonSerializer.Serialize(new { task.Id, task.Objective, Type = task.Type.ToString(), TaskSource = task.Source.ToString() })
-        }, ct);
+        await publisher.PublishAsync(
+            ProjectEventBuilder.ForTask(
+                projectId, task.Id, EventTypes.TaskCreated, user.Email,
+                new { task.Objective, Type = task.Type.ToString(), TaskSource = task.Source.ToString() }),
+            ct);
 
         await repo.AddAsync(task, ct);
 
