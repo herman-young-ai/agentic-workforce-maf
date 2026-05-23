@@ -16,8 +16,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Features.Documents;
 /// are rejected with either 400 (handler-side check) or 413 (Kestrel) — both
 /// are acceptable safety outcomes.
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class UploadSizeLimitTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

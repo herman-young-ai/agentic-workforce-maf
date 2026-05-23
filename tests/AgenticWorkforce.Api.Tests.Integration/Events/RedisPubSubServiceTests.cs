@@ -9,8 +9,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Events;
 /// <summary>
 /// Regression coverage for <see cref="RedisPubSubService"/>.
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class RedisPubSubServiceTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

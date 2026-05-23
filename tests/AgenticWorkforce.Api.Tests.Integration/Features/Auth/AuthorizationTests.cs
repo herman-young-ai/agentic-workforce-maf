@@ -12,8 +12,9 @@ using Xunit;
 
 namespace AgenticWorkforce.Api.Tests.Integration.Features.Auth;
 
+[Collection(IntegrationTestCollection.Name)]
 public class AuthorizationTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

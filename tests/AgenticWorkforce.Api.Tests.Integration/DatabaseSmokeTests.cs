@@ -8,7 +8,8 @@ using Xunit;
 
 namespace AgenticWorkforce.Api.Tests.Integration;
 
-public class DatabaseSmokeTests(ApiWebApplicationFactory factory) : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+[Collection(IntegrationTestCollection.Name)]
+public class DatabaseSmokeTests(ApiWebApplicationFactory factory) : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

@@ -1,8 +1,11 @@
+using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
+using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Interfaces.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgenticWorkforce.Api.Features.Projects;
@@ -37,6 +40,7 @@ public static class CreateProject
         ICurrentUserAccessor userAccessor,
         IProjectRepository repo,
         IIdempotencyService idempotency,
+        IEventPublisher publisher,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -66,6 +70,15 @@ public static class CreateProject
             Jurisdiction     = request.Jurisdiction,
             Tier             = request.Tier
         };
+
+        await publisher.PublishAsync(new ProjectEvent
+        {
+            ProjectId = project.Id,
+            EventType = EventTypes.ProjectCreated,
+            Source    = user.Email,
+            Severity  = EventSeverity.Info,
+            Data      = JsonSerializer.Serialize(new { project.Id, project.Name, project.Objective, Tier = project.Tier.ToString() })
+        }, ct);
 
         await repo.CreateWithOwnerAsync(project, user.Id, ct);
 

@@ -12,8 +12,9 @@ using Xunit;
 
 namespace AgenticWorkforce.Api.Tests.Integration.Features.Catalog;
 
+[Collection(IntegrationTestCollection.Name)]
 public class CatalogBrowseTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

@@ -19,8 +19,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Features.HumanInput;
 /// IHumanInputRepository.RespondAsync via the typed
 /// WorkflowRun.TriggeredById FK (added in Phase 3.5).
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class SegregationOfDutiesTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

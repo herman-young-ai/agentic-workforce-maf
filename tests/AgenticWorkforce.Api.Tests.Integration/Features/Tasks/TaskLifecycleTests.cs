@@ -13,8 +13,9 @@ using Xunit;
 
 namespace AgenticWorkforce.Api.Tests.Integration.Features.Tasks;
 
+[Collection(IntegrationTestCollection.Name)]
 public class TaskLifecycleTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

@@ -11,8 +11,9 @@ using Xunit;
 
 namespace AgenticWorkforce.Api.Tests.Integration.Features.Projects;
 
+[Collection(IntegrationTestCollection.Name)]
 public class ProjectCrudTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

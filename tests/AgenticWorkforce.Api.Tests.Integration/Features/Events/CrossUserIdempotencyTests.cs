@@ -16,8 +16,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Features.Events;
 /// the in-memory store for Redis, so this test confirms the scoping
 /// survives the swap.
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class CrossUserIdempotencyTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

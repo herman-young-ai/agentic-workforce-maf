@@ -15,8 +15,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Features.Learnings;
 /// while the StubEmbeddingService is wired (Phase 4). Without this gate the
 /// stub's zero-vector return would silently corrupt pgvector cosine search.
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class EmbeddingStubGateTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

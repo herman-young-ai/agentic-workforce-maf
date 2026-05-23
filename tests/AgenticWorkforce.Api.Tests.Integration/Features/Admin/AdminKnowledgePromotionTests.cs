@@ -17,8 +17,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Features.Admin;
 /// None -> PendingApproval (operator) -> Approved (admin)
 /// and the reject path None -> PendingApproval -> Rejected.
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class AdminKnowledgePromotionTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

@@ -13,8 +13,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Features.Admin;
 /// platform-level role boundary — Owner/Reviewer/Operator/Viewer all see 403
 /// regardless of their project membership.
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class AdminAuthorizationTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

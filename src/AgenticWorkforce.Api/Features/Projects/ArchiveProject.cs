@@ -1,7 +1,11 @@
+using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
+using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Enums;
+using AgenticWorkforce.Domain.Events;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Interfaces.Services;
 
 namespace AgenticWorkforce.Api.Features.Projects;
 
@@ -18,6 +22,7 @@ public static class ArchiveProject
         ICurrentUserAccessor userAccessor,
         IProjectAuthorizationService authz,
         IProjectRepository repo,
+        IEventPublisher publisher,
         CancellationToken ct)
     {
         var user = userAccessor.User;
@@ -30,6 +35,16 @@ public static class ArchiveProject
             return Results.NoContent();
 
         project.Status = ProjectStatus.Archived;
+
+        await publisher.PublishAsync(new ProjectEvent
+        {
+            ProjectId = projectId,
+            EventType = EventTypes.ProjectArchived,
+            Source    = user.Email,
+            Severity  = EventSeverity.Info,
+            Data      = JsonSerializer.Serialize(new { project.Id, project.Name })
+        }, ct);
+
         await repo.UpdateAsync(project, ct);
 
         return Results.NoContent();

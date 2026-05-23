@@ -15,8 +15,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Features.Events;
 ///   - a replayed token is rejected (GETDEL = atomic single-use)
 ///   - requests without a token fall back to the JWT scheme
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class SseTokenTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 

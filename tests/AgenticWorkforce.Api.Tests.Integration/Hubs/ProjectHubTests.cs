@@ -17,8 +17,9 @@ namespace AgenticWorkforce.Api.Tests.Integration.Hubs;
 ///   - non-members are blocked by the BOLA gate
 ///   - events published via IEventPublisher fan out to connected clients
 /// </summary>
+[Collection(IntegrationTestCollection.Name)]
 public class ProjectHubTests(ApiWebApplicationFactory factory)
-    : IClassFixture<ApiWebApplicationFactory>, IAsyncLifetime
+    : IAsyncLifetime
 {
     private readonly ApiWebApplicationFactory _factory = factory;
 
