@@ -51,40 +51,55 @@ Two patterns:
 
 ```csharp
 [Authorize]
-public class ProjectHub : Hub
+public class ProjectHub(
+    IProjectAuthorizationService authz,
+    ISessionRepository sessions) : Hub<IProjectHubClient>
 {
-    // Client joins a project channel
     public async Task JoinProject(Guid projectId)
     {
-        // Verify membership via IProjectAuthorizationService
+        // BOLA gate: a project group leaks every event for that project, so
+        // membership MUST be verified before the SignalR group is joined. A
+        // missing check here would let any authenticated client subscribe to
+        // any project's stream by guessing IDs.
+        var userId = ResolveUserId(Context.User);
+        await authz.EnsureRoleAsync(userId, projectId, ProjectRole.Viewer);
         await Groups.AddToGroupAsync(Context.ConnectionId, $"project:{projectId}");
     }
 
-    public async Task LeaveProject(Guid projectId)
-    {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"project:{projectId}");
-    }
+    public Task LeaveProject(Guid projectId)
+        => Groups.RemoveFromGroupAsync(Context.ConnectionId, $"project:{projectId}");
 
     public async Task JoinSession(Guid sessionId)
     {
+        // Sessions are project-scoped — resolve the parent project and check
+        // membership there. Sessions have no independent ACL.
+        var session = await sessions.GetByIdAsync(sessionId)
+            ?? throw new HubException("Session not found.");
+        var userId = ResolveUserId(Context.User);
+        await authz.EnsureRoleAsync(userId, session.ProjectId, ProjectRole.Viewer);
         await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{sessionId}");
     }
 
-    public async Task LeaveSession(Guid sessionId)
-    {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"session:{sessionId}");
-    }
+    public Task LeaveSession(Guid sessionId)
+        => Groups.RemoveFromGroupAsync(Context.ConnectionId, $"session:{sessionId}");
 
     public override async Task OnConnectedAsync()
     {
-        // Add to user-specific group for notifications
-        var userId = Context.User?.FindFirst("oid")?.Value;
-        if (userId != null)
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"user:{userId}");
+        // Per-user notification group — auto-joined so notifications reach
+        // the user regardless of which projects they're actively viewing.
+        var userId = ResolveUserId(Context.User);
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"user:{userId:N}");
         await base.OnConnectedAsync();
     }
+
+    private static Guid ResolveUserId(ClaimsPrincipal? principal)
+        => Guid.TryParse(principal?.FindFirst("oid")?.Value, out var id) && id != Guid.Empty
+            ? id
+            : throw new HubException("Token has no valid object-identifier claim.");
 }
 ```
+
+Authorisation failures from `EnsureRoleAsync` (which throws `ForbiddenException`) propagate to the client as a SignalR `HubException` — a structured error, not a silent denied join.
 
 ### Client-facing events (sent TO clients):
 
@@ -143,23 +158,55 @@ internal sealed class RedisEventPublisher(
 {
     public async Task PublishAsync(ProjectEvent evt, CancellationToken ct = default)
     {
-        // 1. Persist to DB (append-only)
+        // Durability model (decided here so callers know what to expect):
+        //   1. PostgreSQL `project_events` is the durable source of truth —
+        //      every event is persisted before this method returns success.
+        //   2. Redis pub/sub is a best-effort live-transport for fan-out via
+        //      SignalR/SSE. If Redis is unreachable or the publish errors,
+        //      we log a warning and return success — the DB row still
+        //      represents the event. Clients reconcile by re-fetching the
+        //      events feed with a `since=...` cursor on reconnect.
+        //
+        // This avoids the phantom failure mode where DB commit succeeded but
+        // the caller (e.g. an endpoint handler) sees an exception and rolls
+        // back its own response — recording the event twice when retried.
+
         db.ProjectEvents.Add(evt);
         await db.SaveChangesAsync(ct);
 
-        // 2. Publish to Redis pub/sub (Api's relay picks this up)
-        var payload = JsonSerializer.Serialize(MapToDto(evt));
-        await redisPubSub.PublishAsync($"events:{evt.ProjectId}", payload, ct);
+        try
+        {
+            var payload = JsonSerializer.Serialize(MapToDto(evt));
+            await redisPubSub.PublishAsync($"events:{evt.ProjectId}", payload, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex,
+                "Redis pub/sub failed for {EventType} on project {ProjectId}; "
+                + "event persisted, clients will replay via the events feed",
+                evt.EventType, evt.ProjectId);
+        }
 
         logger.LogInformation(
-            "Published {EventType} to project:{ProjectId}",
+            "Persisted {EventType} for project {ProjectId}",
             evt.EventType, evt.ProjectId);
     }
 
     public async Task PublishAsync(string channel, string eventType, object data, CancellationToken ct = default)
     {
+        // The string-channel overload is for transient signals (UI hints,
+        // heartbeats) that have no DB counterpart. Same best-effort model.
         var payload = JsonSerializer.Serialize(new { eventType, data, timestamp = DateTime.UtcNow });
-        await redisPubSub.PublishAsync(channel, payload, ct);
+        try
+        {
+            await redisPubSub.PublishAsync(channel, payload, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex,
+                "Redis pub/sub failed for transient {EventType} on channel {Channel}",
+                eventType, channel);
+        }
     }
 }
 ```
@@ -176,16 +223,29 @@ internal sealed class SignalREventRelay(
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        // Subscribe to all project event channels via pattern
+        // One bad message must not kill the relay. Catch per-iteration so a
+        // malformed payload or a transient hub-send failure is logged and
+        // the loop continues consuming subsequent messages.
         await foreach (var (channel, message) in redisPubSub.SubscribePatternAsync("events:*", ct))
         {
-            var projectId = channel.Replace("events:", "");
-            var evt = JsonSerializer.Deserialize<ProjectEventDto>(message);
-            if (evt != null)
+            try
             {
+                var projectId = channel.Replace("events:", "", StringComparison.Ordinal);
+                var evt = JsonSerializer.Deserialize<ProjectEventDto>(message);
+                if (evt is null)
+                {
+                    logger.LogWarning("Dropping malformed event from {Channel}", channel);
+                    continue;
+                }
                 await hubContext.Clients
                     .Group($"project:{projectId}")
                     .ProjectEvent(evt);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex,
+                    "Failed to relay event from {Channel}; payload preserved in project_events",
+                    channel);
             }
         }
     }
@@ -217,12 +277,19 @@ await eventPublisher.PublishAsync(new ProjectEvent
 
 ### File: `src/AgenticWorkforce.Api/Features/Events/StreamProjectEvents.cs`
 
+Stream endpoints all share three concerns: enforce viewer-or-higher
+membership before opening the stream, set SSE headers including the
+buffering-disable hint, and keep the connection alive past idle proxies via
+a periodic `: ping` comment (CDNs/load balancers commonly drop idle
+connections at 30–60s).
+
 ```csharp
 public static class StreamProjectEvents
 {
     public static void MapEndpoints(IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/v1/projects/{projectId}/events/stream", HandleAsync)
+        app.MapGet("/api/v1/projects/{projectId:guid}/events/stream", HandleAsync)
+            .RequireAuthorization("SseStream")   // accepts JWT or SSE token (see §5)
             .WithTags("Events");
     }
 
@@ -231,23 +298,51 @@ public static class StreamProjectEvents
         HttpContext httpContext,
         IProjectAuthorizationService authz,
         ICurrentUserAccessor userAccessor,
+        IRedisPubSubService redisPubSub,
         CancellationToken ct)
     {
-        // Auth via SSE token (query param) or standard bearer
         var user = userAccessor.User;
         await authz.EnsureRoleAsync(user.Id, projectId, ProjectRole.Viewer, ct);
 
-        httpContext.Response.Headers.ContentType = "text/event-stream";
+        httpContext.Response.Headers.ContentType  = "text/event-stream";
         httpContext.Response.Headers.CacheControl = "no-cache";
-        httpContext.Response.Headers.Connection = "keep-alive";
+        httpContext.Response.Headers.Connection   = "keep-alive";
+        // Hint to Nginx/Azure Front Door to not buffer the response so the
+        // first event reaches the client immediately.
+        httpContext.Response.Headers["X-Accel-Buffering"] = "no";
 
-        // Subscribe to Redis pub/sub for this project
-        var channel = $"events:{projectId}";
-        await foreach (var evt in SubscribeAsync(channel, ct))
+        // 15s heartbeat: a `:`-prefixed line is a valid SSE comment per the
+        // spec, so the client never surfaces it to application code — it
+        // exists purely to keep middleboxes from dropping the connection.
+        using var heartbeat = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        var heartbeatTask = Task.Run(async () =>
         {
-            await httpContext.Response.WriteAsync(
-                $"event: {evt.EventType}\ndata: {JsonSerializer.Serialize(evt)}\n\n", ct);
-            await httpContext.Response.Body.FlushAsync(ct);
+            try
+            {
+                while (await heartbeat.WaitForNextTickAsync(ct))
+                {
+                    await httpContext.Response.WriteAsync(": ping\n\n", ct);
+                    await httpContext.Response.Body.FlushAsync(ct);
+                }
+            }
+            catch (OperationCanceledException) { /* client disconnect */ }
+        }, ct);
+
+        try
+        {
+            await foreach (var msg in redisPubSub.SubscribeAsync($"events:{projectId}", ct))
+            {
+                var evt = JsonSerializer.Deserialize<ProjectEventDto>(msg);
+                if (evt is null) continue;
+                await httpContext.Response.WriteAsync(
+                    $"event: {evt.EventType}\ndata: {msg}\n\n", ct);
+                await httpContext.Response.Body.FlushAsync(ct);
+            }
+        }
+        finally
+        {
+            heartbeat.Dispose();
+            try { await heartbeatTask; } catch (OperationCanceledException) { }
         }
     }
 }
@@ -255,19 +350,26 @@ public static class StreamProjectEvents
 
 ### File: `src/AgenticWorkforce.Api/Features/Events/StreamTaskEvents.cs`
 
-SSE scoped to a single task execution — used by the UI to show live agent output:
+SSE scoped to a single task execution — used by the UI to show live agent
+output. Same auth/header/heartbeat scaffold; channel is `events:{projectId}`
+filtered server-side to `TaskId == taskId`.
 
 ```csharp
-app.MapGet("/api/v1/projects/{projectId}/events/stream/tasks/{taskId}", HandleAsync)
+app.MapGet("/api/v1/projects/{projectId:guid}/events/stream/tasks/{taskId:guid}", HandleAsync)
+    .RequireAuthorization("SseStream")
     .WithTags("Events");
 ```
 
 ### File: `src/AgenticWorkforce.Api/Features/Events/StreamNotifications.cs`
 
-Per-user notification stream (all projects):
+Per-user notification stream (all projects). Subscribes to
+`user:{userId:N}:notifications` rather than a project channel — there's no
+project-id parameter, so authorisation is "the connected user is the user
+this stream is for", not project membership.
 
 ```csharp
 app.MapGet("/api/v1/notifications/stream", HandleAsync)
+    .RequireAuthorization("SseStream")
     .WithTags("Notifications");
 ```
 
@@ -275,9 +377,12 @@ app.MapGet("/api/v1/notifications/stream", HandleAsync)
 
 ## 5. SSE Token Exchange
 
-### File: `src/AgenticWorkforce.Api/Features/Auth/CreateSseToken.cs`
+The browser `EventSource` API can't set request headers, so the client
+exchanges its JWT for a short-lived single-use token and appends it to the
+SSE URL as `?token=…`. The token is stored in Redis with a 30 s TTL; the
+auth handler reads it via `GETDEL` so a token can be redeemed exactly once.
 
-EventSource API cannot set HTTP headers. The client exchanges a JWT for a short-lived Redis token:
+### File: `src/AgenticWorkforce.Api/Features/Auth/CreateSseToken.cs`
 
 ```csharp
 public static class CreateSseToken
@@ -297,58 +402,169 @@ public static class CreateSseToken
         CancellationToken ct)
     {
         var user = userAccessor.User;
-        var token = Guid.NewGuid().ToString("N");
-        var db = redis.GetDatabase();
 
-        // Store: token → user claims JSON, 30s TTL, single-use via GETDEL
-        var claims = JsonSerializer.Serialize(new { user.Id, user.Email, user.Roles });
-        await db.StringSetAsync($"sse-token:{token}", claims, TimeSpan.FromSeconds(30));
+        // 256-bit cryptographically-random token rather than a v4 Guid so
+        // brute-force across the 30s TTL window is infeasible.
+        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+
+        // Snapshot the claims the SSE handler will reconstruct the principal
+        // from. This IS the authorisation truth the stream endpoint sees —
+        // include Roles for downstream policy checks.
+        var snapshot = JsonSerializer.Serialize(new
+        {
+            user.Id,
+            user.Email,
+            user.Roles
+        });
+
+        var db = redis.GetDatabase();
+        await db.StringSetAsync($"sse-token:{token}", snapshot, TimeSpan.FromSeconds(30));
 
         return Results.Ok(new Response(token, 30));
     }
 }
 ```
 
-### SSE Auth Middleware
-
-For SSE endpoints, resolve user from `?token=` query param via Redis GETDEL:
+### File: `src/AgenticWorkforce.Api/Core/Auth/SseTokenAuthHandler.cs`
 
 ```csharp
-// Api/Core/Auth/SseTokenAuthHandler.cs
-public class SseTokenAuthHandler(IConnectionMultiplexer redis) : IAuthenticationHandler
+public sealed class SseTokenAuthHandler(
+    IOptionsMonitor<AuthenticationSchemeOptions> options,
+    ILoggerFactory logger,
+    UrlEncoder encoder,
+    IConnectionMultiplexer redis)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
-    // If ?token= present, GETDEL from Redis, construct ClaimsPrincipal
-    // Single-use: token is deleted on first read
+    public const string SchemeName = "SseToken";
+
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        if (!Request.Query.TryGetValue("token", out var tokenRaw)
+            || string.IsNullOrWhiteSpace(tokenRaw))
+            return AuthenticateResult.NoResult();  // let other schemes try
+
+        var db = redis.GetDatabase();
+        // Atomic single-use: GETDEL returns the value AND removes the key in
+        // one round-trip, so a replay of the same `?token=` value returns
+        // null on the second attempt.
+        var snapshotJson = await db.StringGetDeleteAsync($"sse-token:{tokenRaw}");
+        if (!snapshotJson.HasValue)
+            return AuthenticateResult.Fail("Invalid or already-redeemed SSE token.");
+
+        var snapshot = JsonSerializer.Deserialize<SseTokenSnapshot>(snapshotJson!);
+        if (snapshot is null)
+            return AuthenticateResult.Fail("Malformed SSE token payload.");
+
+        var claims = new List<Claim>
+        {
+            new("oid",                       snapshot.Id.ToString()),
+            new(ClaimTypes.NameIdentifier,   snapshot.Id.ToString()),
+            new(ClaimTypes.Email,            snapshot.Email),
+            new("preferred_username",        snapshot.Email),
+            new("name",                      snapshot.Email)
+        };
+        claims.AddRange(snapshot.Roles.Select(r => new Claim(ClaimTypes.Role, r)));
+
+        var identity  = new ClaimsIdentity(claims, SchemeName);
+        var principal = new ClaimsPrincipal(identity);
+        return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
+    }
+
+    private sealed record SseTokenSnapshot(Guid Id, string Email, IReadOnlyList<string> Roles);
 }
 ```
+
+### Scheme + policy registration in `Program.cs`
+
+```csharp
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"))
+    .AddScheme<AuthenticationSchemeOptions, SseTokenAuthHandler>(
+        SseTokenAuthHandler.SchemeName, _ => { });
+
+builder.Services.AddAuthorizationBuilder()
+    // ...existing role policies...
+    .AddPolicy("SseStream", p => p
+        .AddAuthenticationSchemes(
+            SseTokenAuthHandler.SchemeName,
+            JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser());
+```
+
+The `"SseStream"` policy is the one the stream endpoints apply via
+`.RequireAuthorization("SseStream")`. Non-stream endpoints continue to use
+the JWT-only default policy — the token scheme is opt-in.
 
 ---
 
 ## 6. Redis Pub/Sub Service
 
+### File: `src/AgenticWorkforce.Infrastructure/Events/IRedisPubSubService.cs`
+
+```csharp
+public interface IRedisPubSubService
+{
+    Task PublishAsync(string channel, string message, CancellationToken ct = default);
+
+    /// <summary>Subscribe to a single literal channel.</summary>
+    IAsyncEnumerable<string> SubscribeAsync(
+        string channel, CancellationToken ct = default);
+
+    /// <summary>
+    /// Subscribe to a glob-style channel pattern (e.g. <c>"events:*"</c>) so
+    /// the consumer sees messages from any matching channel. The yielded
+    /// tuple carries the actual channel each message arrived on, since the
+    /// consumer typically needs to route by it.
+    /// </summary>
+    IAsyncEnumerable<(string Channel, string Message)> SubscribePatternAsync(
+        string pattern, CancellationToken ct = default);
+}
+```
+
 ### File: `src/AgenticWorkforce.Infrastructure/Events/RedisPubSubService.cs`
 
-Wraps `ISubscriber` for publishing and subscribing:
+Wraps `ISubscriber` for publishing and subscribing. Each subscription owns a
+bounded in-memory queue: a slow consumer drops the **oldest** buffered
+message rather than ballooning memory (Principle 19). The DB-side
+`project_events` table is the durable record, so a dropped pub/sub message
+is a delayed event, not a lost one.
 
 ```csharp
 internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisPubSubService
 {
+    // Per-subscription buffer. 1k events at ~1KB each = ~1MB upper bound.
+    private const int SubscribeBufferSize = 1000;
+
     public async Task PublishAsync(string channel, string message, CancellationToken ct = default)
     {
         var subscriber = redis.GetSubscriber();
         await subscriber.PublishAsync(RedisChannel.Literal(channel), message);
     }
 
-    public async IAsyncEnumerable<string> SubscribeAsync(
-        string channel, [EnumeratorCancellation] CancellationToken ct = default)
+    public IAsyncEnumerable<string> SubscribeAsync(
+        string channel, CancellationToken ct = default)
+        => SubscribeLiteralAsync(RedisChannel.Literal(channel), ct);
+
+    public IAsyncEnumerable<(string Channel, string Message)> SubscribePatternAsync(
+        string pattern, CancellationToken ct = default)
+        => SubscribePatternInternalAsync(RedisChannel.Pattern(pattern), ct);
+
+    private async IAsyncEnumerable<string> SubscribeLiteralAsync(
+        RedisChannel channel,
+        [EnumeratorCancellation] CancellationToken ct)
     {
         var subscriber = redis.GetSubscriber();
-        var queue = Channel.CreateUnbounded<string>();
-
-        await subscriber.SubscribeAsync(RedisChannel.Literal(channel), (_, message) =>
+        var queue = Channel.CreateBounded<string>(new BoundedChannelOptions(SubscribeBufferSize)
         {
-            if (message.HasValue)
-                queue.Writer.TryWrite(message!);
+            FullMode     = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false
+        });
+
+        await subscriber.SubscribeAsync(channel, (_, message) =>
+        {
+            if (message.HasValue) queue.Writer.TryWrite(message!);
         });
 
         try
@@ -358,7 +574,35 @@ internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisP
         }
         finally
         {
-            await subscriber.UnsubscribeAsync(RedisChannel.Literal(channel));
+            await subscriber.UnsubscribeAsync(channel);
+        }
+    }
+
+    private async IAsyncEnumerable<(string Channel, string Message)> SubscribePatternInternalAsync(
+        RedisChannel pattern,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        var subscriber = redis.GetSubscriber();
+        var queue = Channel.CreateBounded<(string, string)>(new BoundedChannelOptions(SubscribeBufferSize)
+        {
+            FullMode     = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false
+        });
+
+        await subscriber.SubscribeAsync(pattern, (channel, message) =>
+        {
+            if (message.HasValue) queue.Writer.TryWrite((channel.ToString(), message!));
+        });
+
+        try
+        {
+            await foreach (var msg in queue.Reader.ReadAllAsync(ct))
+                yield return msg;
+        }
+        finally
+        {
+            await subscriber.UnsubscribeAsync(pattern);
         }
     }
 }
@@ -368,7 +612,16 @@ internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisP
 
 ## 7. Idempotency Service (Redis)
 
-Replace the Phase 3 in-memory stub with Redis:
+Replace the Phase 3.5 in-memory stub with a Redis-backed implementation
+that survives Api replica scale-out (an idempotent retry that hits a
+different pod must still see the cached response).
+
+**The signature is `(Guid userId, string key, ct)` — do not regress to a
+single-key form.** Phase 3.5 added user-scoping to close a cross-user
+replay vulnerability: keying only on the header would let user B replay
+user A's response (including the `Location` of a created resource) by
+sending A's idempotency key. The composed Redis key
+`idempotency:{userId:N}:{key}` mirrors the in-memory impl exactly.
 
 ### File: `src/AgenticWorkforce.Infrastructure/Services/RedisIdempotencyService.cs`
 
@@ -377,20 +630,31 @@ internal sealed class RedisIdempotencyService(IConnectionMultiplexer redis) : II
 {
     private static readonly TimeSpan Ttl = TimeSpan.FromHours(24);
 
-    public async Task<T?> GetCachedResponseAsync<T>(string key, CancellationToken ct = default)
+    public async Task<T?> GetCachedResponseAsync<T>(
+        Guid userId, string key, CancellationToken ct = default)
     {
         var db = redis.GetDatabase();
-        var value = await db.StringGetAsync($"idempotency:{key}");
+        var value = await db.StringGetAsync(Compose(userId, key));
         return value.HasValue ? JsonSerializer.Deserialize<T>(value!) : default;
     }
 
-    public async Task CacheResponseAsync<T>(string key, T response, CancellationToken ct = default)
+    public async Task CacheResponseAsync<T>(
+        Guid userId, string key, T response, CancellationToken ct = default)
     {
         var db = redis.GetDatabase();
-        await db.StringSetAsync($"idempotency:{key}", JsonSerializer.Serialize(response), Ttl);
+        await db.StringSetAsync(Compose(userId, key), JsonSerializer.Serialize(response), Ttl);
     }
+
+    // Mirrors InMemoryIdempotencyService.Compose so the user-scoping
+    // semantics carry through to the Redis backing store.
+    private static string Compose(Guid userId, string key) => $"idempotency:{userId:N}:{key}";
 }
 ```
+
+DI swap (in `Infrastructure/DependencyInjection.cs`): the existing
+`AddSingleton<IIdempotencyService, InMemoryIdempotencyService>()` becomes
+`AddSingleton<IIdempotencyService, RedisIdempotencyService>()`. No caller
+changes because the interface is preserved.
 
 ---
 
@@ -456,13 +720,13 @@ public static class EventTypes
 
 ---
 
-## 9. AppHost Wiring
+## 9. AppHost + Redis Wiring
 
-Update `src/AgenticWorkforce.AppHost/Program.cs` to expose Redis connection to both Api and Worker:
+The Aspire AppHost already exposes Redis to both processes; the connection
+string `redis` arrives at each process via `ConnectionStrings:redis`.
 
 ```csharp
-var redis = builder.AddRedis("redis")
-    .WithDataVolume();
+var redis = builder.AddRedis("redis").WithDataVolume();
 
 var api = builder.AddProject<Projects.AgenticWorkforce_Api>("api")
     .WithReference(postgres)
@@ -474,7 +738,67 @@ builder.AddProject<Projects.AgenticWorkforce_Worker>("worker")
     .WithReference(redis);
 ```
 
-(Already mostly correct — verify Redis connection string name matches what Infrastructure expects.)
+### `IConnectionMultiplexer` registration
+
+Both the SignalR backplane and our own `RedisPubSubService` /
+`RedisIdempotencyService` need a `StackExchange.Redis.IConnectionMultiplexer`.
+Register it once as a singleton in `Infrastructure/DependencyInjection.cs`
+so every consumer (and the SignalR backplane) shares one connection pool
+rather than each opening its own:
+
+```csharp
+// Infrastructure/DependencyInjection.cs (additions)
+services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var conn = cfg.GetConnectionString("redis")
+        ?? throw new InvalidOperationException(
+            "Connection string 'redis' is required (Aspire WithReference, env var, or Key Vault).");
+    return ConnectionMultiplexer.Connect(conn);
+});
+
+services.AddSingleton<IRedisPubSubService, RedisPubSubService>();
+services.AddSingleton<IEventPublisher, RedisEventPublisher>();
+services.AddSingleton<IIdempotencyService, RedisIdempotencyService>();   // replaces InMemoryIdempotencyService
+```
+
+And in `Api/Program.cs` the SignalR backplane reuses the same
+configuration key so it joins the same Redis instance:
+
+```csharp
+builder.Services.AddSignalR()
+    .AddStackExchangeRedis(
+        builder.Configuration.GetConnectionString("redis")!,
+        options =>
+        {
+            options.Configuration.ChannelPrefix = RedisChannel.Literal("agentic:");
+        });
+
+builder.Services.AddHostedService<SignalREventRelay>();
+
+app.MapHub<ProjectHub>("/hubs/project");
+```
+
+Lazy resolution (the multiplexer is built inside the factory, not at
+service registration time) matches the Postgres `NpgsqlDataSource` pattern
+introduced in Phase 4, so `WebApplicationFactory` test overrides on the
+`redis` connection string take effect.
+
+---
+
+## Decision Log — Phase 5 Plan Updates
+
+These decisions resolve open issues spotted during the pre-build review.
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | `ProjectHub.JoinProject` / `JoinSession` call `IProjectAuthorizationService.EnsureRoleAsync` **before** joining the SignalR group. | Without it, any authenticated client could subscribe to any project's stream by guessing IDs (BOLA). |
+| 2 | `RedisEventPublisher`: PostgreSQL is system of record; Redis publish failure logs a warning and returns success. | Throwing after a successful DB write would create phantom retries — the event would be recorded twice. Clients reconcile missed events via the events feed `since` cursor on reconnect. |
+| 3 | `RedisPubSubService` uses `Channel.CreateBounded(1000, DropOldest)`. | Principle 19: bounded resources. The DB row is authoritative, so dropping an oldest in-memory copy under backpressure is acceptable. |
+| 4 | `IRedisPubSubService` exposes both `SubscribeAsync` (literal) and `SubscribePatternAsync` (glob) — the relay needs the pattern variant. | Fixes a dangling reference: the relay called a method the original interface didn't declare. |
+| 5 | SSE endpoints emit `: ping` every 15 s and send `X-Accel-Buffering: no`. | Most proxies (Nginx, Azure Front Door) drop idle connections at 30–60 s and buffer responses. |
+| 6 | `SseTokenAuthHandler` extends `AuthenticationHandler<AuthenticationSchemeOptions>` and registers as a named scheme; stream endpoints opt in via `RequireAuthorization("SseStream")`. | The original sketch used the bare `IAuthenticationHandler` interface and never showed scheme registration — would have left tokens accepted on every endpoint or not at all. |
+| 7 | `RedisIdempotencyService` preserves the `(Guid userId, string key, ct)` signature with key `idempotency:{userId:N}:{key}`. | Phase 3.5 added user-scoping to close a cross-user replay vulnerability; the Redis swap must not regress that. |
 
 ---
 
@@ -503,11 +827,27 @@ tests/AgenticWorkforce.Api.Tests.Integration/Features/Events/SseStreamTests.cs
 ### Files to MODIFY
 
 ```
-src/AgenticWorkforce.Api/Program.cs — Add SignalR, Redis, hub mapping
-src/AgenticWorkforce.Api/AgenticWorkforce.Api.csproj — Add SignalR Redis package
-src/AgenticWorkforce.Infrastructure/DependencyInjection.cs — Register event services
-src/AgenticWorkforce.Infrastructure/AgenticWorkforce.Infrastructure.csproj — Add StackExchange.Redis
-Directory.Packages.props — Add Redis + SignalR package versions
+src/AgenticWorkforce.Api/Program.cs
+  - AddSignalR().AddStackExchangeRedis(...) using shared connection string
+  - AddScheme<…, SseTokenAuthHandler>("SseToken")
+  - AddAuthorizationBuilder().AddPolicy("SseStream", ...)
+  - AddHostedService<SignalREventRelay>()
+  - MapHub<ProjectHub>("/hubs/project")
+src/AgenticWorkforce.Api/AgenticWorkforce.Api.csproj
+  - Microsoft.AspNetCore.SignalR.StackExchangeRedis
+src/AgenticWorkforce.Infrastructure/DependencyInjection.cs
+  - AddSingleton<IConnectionMultiplexer>() with lazy factory (matches the
+    NpgsqlDataSource pattern so test factory overrides apply)
+  - AddSingleton<IRedisPubSubService, RedisPubSubService>()
+  - AddSingleton<IEventPublisher, RedisEventPublisher>()
+  - SWAP: AddSingleton<IIdempotencyService, RedisIdempotencyService>()
+    (replaces the Phase 4 in-memory impl; the in-memory class can stay
+    in source as a fallback / for unit tests)
+src/AgenticWorkforce.Infrastructure/AgenticWorkforce.Infrastructure.csproj
+  - StackExchange.Redis
+Directory.Packages.props
+  - StackExchange.Redis (version)
+  - Microsoft.AspNetCore.SignalR.StackExchangeRedis (version)
 ```
 
 ---
@@ -516,12 +856,36 @@ Directory.Packages.props — Add Redis + SignalR package versions
 
 1. `dotnet build AgenticWorkforce.slnx` exits 0
 2. `dotnet test AgenticWorkforce.slnx` — all tests pass
-3. Integration test: connect SignalR client → join project group → create task via API → receive `task.created` event on hub
-4. SSE endpoint returns `text/event-stream` content type and delivers events
-5. SSE token exchange: POST gets token, GET with `?token=` authenticates and invalidates token (single-use)
-6. Idempotency service uses Redis (24h TTL, same key returns same response)
-7. `IEventPublisher` persists to DB AND fans out via SignalR in a single call
-8. No event is silently dropped — if DB write succeeds but SignalR fails, log error (don't throw)
+3. **Live event delivery.** Integration test: connect SignalR client →
+   `JoinProject(memberProjectId)` → trigger a task mutation via the API →
+   receive `task.created` on the hub.
+4. **BOLA gate.** Integration test: authenticated user who is **not** a
+   member of `projectId` calls `JoinProject(projectId)` → server throws
+   `HubException` and the client never joins the group. No subsequent
+   events for that project reach the connection.
+5. **SSE content + headers.** `GET …/events/stream` returns
+   `Content-Type: text/event-stream`, `X-Accel-Buffering: no`, and delivers
+   a `: ping` comment within ~15 s of an idle connection.
+6. **SSE token is single-use.** `POST /api/v1/auth/sse-token` returns a
+   token; a `GET …/events/stream?token=…` succeeds; an immediate replay
+   with the same token returns 401.
+7. **User-scoped idempotency.** `RedisIdempotencyService` stores under
+   `idempotency:{userId:N}:{key}`. Integration test: user A POSTs with
+   header `X-Idempotency-Key: shared` → user B POSTs with the same header
+   → B does NOT receive A's cached response (cross-user replay closed).
+8. **Durability model (DB-first, pub/sub best-effort).** With Redis
+   disconnected mid-test: `IEventPublisher.PublishAsync` returns success,
+   the row is present in `project_events`, the publisher logs a warning
+   (no exception bubbles to the caller). Reconnecting Redis does not
+   replay missed events automatically — clients reconcile via the events
+   feed with a `since` cursor.
+9. **Bounded subscription buffer.** Unit test on `RedisPubSubService`:
+   publish ≥ `SubscribeBufferSize + 100` messages faster than the
+   consumer drains; the oldest entries are dropped, memory stays
+   bounded, the consumer never throws.
+10. **Pattern subscribe routes by channel.** Subscribe to `events:*`,
+    publish to `events:A` and `events:B`, assert each message arrives
+    tagged with its actual source channel.
 
 ---
 
