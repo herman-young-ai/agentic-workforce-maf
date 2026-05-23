@@ -29,27 +29,17 @@ public static class StreamProjectEvents
     {
         await authz.EnsureRoleAsync(userAccessor.User.Id, projectId, ProjectRole.Viewer, ct);
 
-        SseStreamWriter.WriteHeaders(httpContext);
-
-        // The heartbeat runs concurrently with the event loop so an idle
-        // stream never trips the proxy idle-timeout.
-        var heartbeatTask = SseStreamWriter.RunHeartbeatAsync(httpContext, ct);
-
-        try
-        {
-            await foreach (var msg in redisPubSub.SubscribeAsync($"events:{projectId:N}", ct))
+        await SseStreamWriter.PumpAsync(
+            httpContext,
+            RedisChannels.ProjectEvents(projectId),
+            redisPubSub,
+            msg =>
             {
-                var evt = JsonSerializer.Deserialize<ProjectEventDto>(msg);
-                if (evt is null) continue;
-                await SseStreamWriter.WriteEventAsync(httpContext, evt.EventType, msg, ct);
-            }
-        }
-        finally
-        {
-            // The heartbeat completes normally on cancellation (handled
-            // inside RunHeartbeatAsync); awaiting surfaces any unexpected
-            // fault rather than masking it.
-            await heartbeatTask;
-        }
+                var evt = JsonSerializer.Deserialize<ProjectEventDto>(msg, WireJsonOptions.Default);
+                return evt is null
+                    ? SseStreamWriter.SseFrame.Skip
+                    : SseStreamWriter.SseFrame.Send(evt.EventType, msg);
+            },
+            ct);
     }
 }

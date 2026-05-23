@@ -2,6 +2,7 @@ using System.Security.Claims;
 using AgenticWorkforce.Api.Core.Auth;
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -38,11 +39,11 @@ public class ProjectHub(
     {
         var userId = ResolveUserId(Context.User);
         await EnsureProjectMembershipAsync(userId, projectId);
-        await Groups.AddToGroupAsync(Context.ConnectionId, $"project:{projectId:N}");
+        await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Project(projectId));
     }
 
     public Task LeaveProject(Guid projectId)
-        => Groups.RemoveFromGroupAsync(Context.ConnectionId, $"project:{projectId:N}");
+        => Groups.RemoveFromGroupAsync(Context.ConnectionId, HubGroups.Project(projectId));
 
     public async Task JoinSession(Guid sessionId)
     {
@@ -52,24 +53,11 @@ public class ProjectHub(
             ?? throw new HubException("Session not found.");
         var userId = ResolveUserId(Context.User);
         await EnsureProjectMembershipAsync(userId, session.ProjectId);
-        await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{sessionId:N}");
-    }
-
-    private async Task EnsureProjectMembershipAsync(Guid userId, Guid projectId)
-    {
-        // Mirrors IProjectAuthorizationService.HasRoleAsync's PlatformAdmin
-        // shortcut — platform admins reach every project without needing
-        // an explicit membership row.
-        if (Context.User?.IsInRole(Roles.PlatformAdmin) == true) return;
-
-        var member = await memberRepo.GetMembershipAsync(userId, projectId);
-        if (member is null || member.Role < ProjectRole.Viewer)
-            throw new HubException(
-                $"User does not have viewer access to project {projectId}.");
+        await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Session(sessionId));
     }
 
     public Task LeaveSession(Guid sessionId)
-        => Groups.RemoveFromGroupAsync(Context.ConnectionId, $"session:{sessionId:N}");
+        => Groups.RemoveFromGroupAsync(Context.ConnectionId, HubGroups.Session(sessionId));
 
     public override async Task OnConnectedAsync()
     {
@@ -77,8 +65,22 @@ public class ProjectHub(
         // matter which project they're focused on. Always safe to join:
         // the group key includes the connected user's own id.
         var userId = ResolveUserId(Context.User);
-        await Groups.AddToGroupAsync(Context.ConnectionId, $"user:{userId:N}");
+        await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.User(userId));
         await base.OnConnectedAsync();
+    }
+
+    private async Task EnsureProjectMembershipAsync(Guid userId, Guid projectId)
+    {
+        // Same predicate the HTTP-side IProjectAuthorizationService runs;
+        // shared via ProjectMembershipPolicy so the rule has one owner.
+        var isPlatformAdmin = Context.User?.IsInRole(Roles.PlatformAdmin) == true;
+        var member = isPlatformAdmin
+            ? null
+            : await memberRepo.GetMembershipAsync(userId, projectId);
+
+        if (!ProjectMembershipPolicy.IsAllowed(isPlatformAdmin, member, ProjectRole.Viewer))
+            throw new HubException(
+                $"User does not have viewer access to project {projectId}.");
     }
 
     private static Guid ResolveUserId(ClaimsPrincipal? principal)

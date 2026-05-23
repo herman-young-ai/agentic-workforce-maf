@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgenticWorkforce.Api.Core.Auth;
+using AgenticWorkforce.Infrastructure.Events;
 using StackExchange.Redis;
 
 namespace AgenticWorkforce.Api.Features.Auth;
@@ -36,8 +37,9 @@ public static class CreateSseToken
     {
         var user = userAccessor.User;
 
-        // 256 random bits → hex. Brute-force across a 30 s TTL is infeasible.
-        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        // 256 random bits → lowercase hex. Brute-force across a 30 s TTL
+        // is infeasible.
+        var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
 
         // Snapshot the claims the SSE handler will reconstruct. This IS the
         // authorisation truth the stream endpoint sees — include Roles so
@@ -47,7 +49,7 @@ public static class CreateSseToken
             user.Id,
             user.Email,
             user.Roles
-        });
+        }, WireJsonOptions.Default);
 
         var db = redis.GetDatabase();
         await db.StringSetAsync(

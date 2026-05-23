@@ -37,11 +37,9 @@ internal sealed class RedisEventPublisher(
 
         try
         {
-            var dto = new ProjectEventDto(
-                evt.Id, evt.ProjectId, evt.TaskId, evt.SessionId,
-                evt.EventType, evt.Source, evt.Severity, evt.Data, evt.CreatedAt);
-            var payload = JsonSerializer.Serialize(dto);
-            await redisPubSub.PublishAsync($"events:{evt.ProjectId:N}", payload, ct);
+            var payload = JsonSerializer.Serialize(
+                ProjectEventDto.From(evt), WireJsonOptions.Default);
+            await redisPubSub.PublishAsync(RedisChannels.ProjectEvents(evt.ProjectId), payload, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -66,7 +64,7 @@ internal sealed class RedisEventPublisher(
             eventType,
             data,
             timestamp = DateTime.UtcNow
-        });
+        }, WireJsonOptions.Default);
 
         try
         {

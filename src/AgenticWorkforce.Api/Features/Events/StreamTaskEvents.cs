@@ -30,23 +30,17 @@ public static class StreamTaskEvents
     {
         await authz.EnsureRoleAsync(userAccessor.User.Id, projectId, ProjectRole.Viewer, ct);
 
-        SseStreamWriter.WriteHeaders(httpContext);
-        var heartbeatTask = SseStreamWriter.RunHeartbeatAsync(httpContext, ct);
-
-        try
-        {
-            await foreach (var msg in redisPubSub.SubscribeAsync($"events:{projectId:N}", ct))
+        await SseStreamWriter.PumpAsync(
+            httpContext,
+            RedisChannels.ProjectEvents(projectId),
+            redisPubSub,
+            msg =>
             {
-                var evt = JsonSerializer.Deserialize<ProjectEventDto>(msg);
-                if (evt is null || evt.TaskId != taskId) continue;
-                await SseStreamWriter.WriteEventAsync(httpContext, evt.EventType, msg, ct);
-            }
-        }
-        finally
-        {
-            // RunHeartbeatAsync handles cancellation internally; awaiting
-            // surfaces unexpected faults instead of masking them.
-            await heartbeatTask;
-        }
+                var evt = JsonSerializer.Deserialize<ProjectEventDto>(msg, WireJsonOptions.Default);
+                return evt is null || evt.TaskId != taskId
+                    ? SseStreamWriter.SseFrame.Skip
+                    : SseStreamWriter.SseFrame.Send(evt.EventType, msg);
+            },
+            ct);
     }
 }

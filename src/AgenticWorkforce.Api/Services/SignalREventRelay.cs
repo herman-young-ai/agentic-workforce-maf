@@ -23,24 +23,25 @@ internal sealed class SignalREventRelay(
     IHubContext<ProjectHub, IProjectHubClient> hubContext,
     ILogger<SignalREventRelay> logger) : BackgroundService
 {
-    private const string ChannelPrefix = "events:";
-
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        logger.LogInformation("SignalR event relay starting — subscribing to {Pattern}", $"{ChannelPrefix}*");
+        logger.LogInformation(
+            "SignalR event relay starting — subscribing to {Pattern}",
+            RedisChannels.AllProjectEventsPattern);
 
-        await foreach (var (channel, message) in redisPubSub.SubscribePatternAsync($"{ChannelPrefix}*", ct))
+        await foreach (var (channel, message) in redisPubSub.SubscribePatternAsync(
+            RedisChannels.AllProjectEventsPattern, ct))
         {
             try
             {
-                if (!channel.StartsWith(ChannelPrefix, StringComparison.Ordinal))
+                var projectIdSegment = RedisChannels.TryExtractProjectIdSegment(channel);
+                if (projectIdSegment is null)
                 {
                     logger.LogWarning("Ignoring message on unexpected channel {Channel}", channel);
                     continue;
                 }
 
-                var projectIdSegment = channel[ChannelPrefix.Length..];
-                var evt = JsonSerializer.Deserialize<ProjectEventDto>(message);
+                var evt = JsonSerializer.Deserialize<ProjectEventDto>(message, WireJsonOptions.Default);
                 if (evt is null)
                 {
                     logger.LogWarning("Dropping malformed event from {Channel}", channel);
@@ -48,7 +49,7 @@ internal sealed class SignalREventRelay(
                 }
 
                 await hubContext.Clients
-                    .Group($"project:{projectIdSegment}")
+                    .Group(HubGroups.Project(projectIdSegment))
                     .ProjectEvent(evt);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

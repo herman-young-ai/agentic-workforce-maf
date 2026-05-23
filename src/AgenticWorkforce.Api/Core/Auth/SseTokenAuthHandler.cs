@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using AgenticWorkforce.Infrastructure.Events;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
@@ -41,7 +42,8 @@ public sealed class SseTokenAuthHandler(
         SseTokenSnapshot? snapshot;
         try
         {
-            snapshot = JsonSerializer.Deserialize<SseTokenSnapshot>((string)snapshotJson!);
+            snapshot = JsonSerializer.Deserialize<SseTokenSnapshot>(
+                (string)snapshotJson!, WireJsonOptions.Default);
         }
         catch (JsonException)
         {

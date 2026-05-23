@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AgenticWorkforce.Infrastructure.Events;
 using StackExchange.Redis;
 
 namespace AgenticWorkforce.Api.Core.Auth;
@@ -28,7 +29,9 @@ internal sealed class RedisIdempotencyService(IConnectionMultiplexer redis) : II
         var value = await db.StringGetAsync(Compose(userId, key));
         // Cast to string disambiguates between the (string) and
         // (ReadOnlySpan<byte>) overloads of JsonSerializer.Deserialize.
-        return value.HasValue ? JsonSerializer.Deserialize<T>((string)value!) : default;
+        return value.HasValue
+            ? JsonSerializer.Deserialize<T>((string)value!, WireJsonOptions.Default)
+            : default;
     }
 
     public async Task CacheResponseAsync<T>(
@@ -37,7 +40,7 @@ internal sealed class RedisIdempotencyService(IConnectionMultiplexer redis) : II
         var db = redis.GetDatabase();
         await db.StringSetAsync(
             Compose(userId, key),
-            JsonSerializer.Serialize(response),
+            JsonSerializer.Serialize(response, WireJsonOptions.Default),
             Ttl);
     }
 

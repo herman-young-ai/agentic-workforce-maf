@@ -18,31 +18,19 @@ public static class StreamNotifications
             .RequireAuthorization("SseStream")
             .WithTags("Notifications");
 
-    private static async Task HandleAsync(
+    private static Task HandleAsync(
         HttpContext httpContext,
         ICurrentUserAccessor userAccessor,
         IRedisPubSubService redisPubSub,
         CancellationToken ct)
     {
-        var userId = userAccessor.User.Id;
-
-        SseStreamWriter.WriteHeaders(httpContext);
-        var heartbeatTask = SseStreamWriter.RunHeartbeatAsync(httpContext, ct);
-
-        try
-        {
-            await foreach (var msg in redisPubSub.SubscribeAsync($"user:{userId:N}:notifications", ct))
-            {
-                // Forward the raw JSON payload; the publisher already
-                // shapes it per the notification contract.
-                await SseStreamWriter.WriteEventAsync(httpContext, "notification", msg, ct);
-            }
-        }
-        finally
-        {
-            // RunHeartbeatAsync handles cancellation internally; awaiting
-            // surfaces unexpected faults instead of masking them.
-            await heartbeatTask;
-        }
+        // Forward the raw payload — the publisher already shapes it per
+        // the notification contract; this endpoint is a pure passthrough.
+        return SseStreamWriter.PumpAsync(
+            httpContext,
+            RedisChannels.UserNotifications(userAccessor.User.Id),
+            redisPubSub,
+            msg => SseStreamWriter.SseFrame.Send("notification", msg),
+            ct);
     }
 }

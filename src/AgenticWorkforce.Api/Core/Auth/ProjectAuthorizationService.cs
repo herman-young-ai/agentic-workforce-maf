@@ -1,6 +1,7 @@
 using AgenticWorkforce.Domain.Enums;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
+using AgenticWorkforce.Domain.Services;
 
 namespace AgenticWorkforce.Api.Core.Auth;
 
@@ -20,15 +21,15 @@ internal sealed class ProjectAuthorizationService(
         ProjectRole minimumRole,
         CancellationToken ct = default)
     {
-        if (currentUserAccessor.User.IsInRole(Roles.PlatformAdmin))
-            return true;
+        // PlatformAdmin lookup is the only HTTP-context-bound input here.
+        // The actual rule lives in ProjectMembershipPolicy so the hub
+        // (which has no HttpContext) can apply the same predicate.
+        var isPlatformAdmin = currentUserAccessor.User.IsInRole(Roles.PlatformAdmin);
+        var member = isPlatformAdmin
+            ? null  // skip the DB hit — PlatformAdmin bypass wins regardless
+            : await memberRepo.GetMembershipAsync(userId, projectId, ct);
 
-        var member = await memberRepo.GetMembershipAsync(userId, projectId, ct);
-
-        // Direct enum comparison works because ProjectRole values are ordered
-        // by seniority (Viewer=10, Operator=20, Reviewer=30, Owner=40). Phase 3.5
-        // renumbered the enum and deleted the previous RoleRank switch.
-        return member is not null && member.Role >= minimumRole;
+        return ProjectMembershipPolicy.IsAllowed(isPlatformAdmin, member, minimumRole);
     }
 
     public async Task EnsureRoleAsync(

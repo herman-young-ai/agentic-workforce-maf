@@ -20,61 +20,42 @@ internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisP
 
     public async Task PublishAsync(string channel, string message, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var subscriber = redis.GetSubscriber();
         await subscriber.PublishAsync(RedisChannel.Literal(channel), message);
     }
 
     public IAsyncEnumerable<string> SubscribeAsync(
         string channel, CancellationToken ct = default)
-        => SubscribeLiteralAsync(RedisChannel.Literal(channel), ct);
+        => SubscribeCoreAsync(RedisChannel.Literal(channel), (_, msg) => (string)msg!, ct);
 
     public IAsyncEnumerable<(string Channel, string Message)> SubscribePatternAsync(
         string pattern, CancellationToken ct = default)
-        => SubscribePatternInternalAsync(RedisChannel.Pattern(pattern), ct);
+        => SubscribeCoreAsync(RedisChannel.Pattern(pattern), (ch, msg) => (ch.ToString(), (string)msg!), ct);
 
-    private async IAsyncEnumerable<string> SubscribeLiteralAsync(
+    /// <summary>
+    /// Generic subscribe core shared by both literal and pattern flavours.
+    /// Owns the bounded channel, the StackExchange.Redis subscription
+    /// lifetime, and the unsubscribe-on-dispose contract — the public
+    /// methods just supply a <see cref="RedisChannel"/> and a mapper from
+    /// <c>(channel, value)</c> to the consumer's element shape.
+    /// </summary>
+    private async IAsyncEnumerable<T> SubscribeCoreAsync<T>(
         RedisChannel channel,
+        Func<RedisChannel, RedisValue, T> map,
         [EnumeratorCancellation] CancellationToken ct)
     {
         var subscriber = redis.GetSubscriber();
-        var queue = Channel.CreateBounded<string>(new BoundedChannelOptions(SubscribeBufferSize)
+        var queue = Channel.CreateBounded<T>(new BoundedChannelOptions(SubscribeBufferSize)
         {
             FullMode     = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
             SingleWriter = false
         });
 
-        await subscriber.SubscribeAsync(channel, (_, message) =>
+        await subscriber.SubscribeAsync(channel, (ch, message) =>
         {
-            if (message.HasValue) queue.Writer.TryWrite(message!);
-        });
-
-        try
-        {
-            await foreach (var msg in queue.Reader.ReadAllAsync(ct))
-                yield return msg;
-        }
-        finally
-        {
-            await subscriber.UnsubscribeAsync(channel);
-        }
-    }
-
-    private async IAsyncEnumerable<(string Channel, string Message)> SubscribePatternInternalAsync(
-        RedisChannel pattern,
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        var subscriber = redis.GetSubscriber();
-        var queue = Channel.CreateBounded<(string, string)>(new BoundedChannelOptions(SubscribeBufferSize)
-        {
-            FullMode     = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-            SingleWriter = false
-        });
-
-        await subscriber.SubscribeAsync(pattern, (channel, message) =>
-        {
-            if (message.HasValue) queue.Writer.TryWrite((channel.ToString(), message!));
+            if (message.HasValue) queue.Writer.TryWrite(map(ch, message));
         });
 
         try
@@ -84,7 +65,7 @@ internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisP
         }
         finally
         {
-            await subscriber.UnsubscribeAsync(pattern);
+            await subscriber.UnsubscribeAsync(channel);
         }
     }
 }
