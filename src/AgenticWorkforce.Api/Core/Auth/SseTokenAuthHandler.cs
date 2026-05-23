@@ -16,6 +16,32 @@ namespace AgenticWorkforce.Api.Core.Auth;
 /// <see cref="AuthenticateResult.Fail"/>; a missing token returns
 /// <see cref="AuthenticateResult.NoResult"/> so JWT bearer (or any other
 /// scheme on the same endpoint) gets a chance to authenticate.
+///
+/// <para><b>Security trade-off — token in URL</b></para>
+/// The browser <c>EventSource</c> API can't set request headers, so the
+/// auth credential rides on <c>?token=</c>. Reverse proxies, load
+/// balancers and access-log pipelines typically log full request URLs
+/// including query strings, so the raw token is visible to anyone who
+/// can read those logs.
+/// <para>
+/// Residual exposure is bounded by three compensating controls:
+/// </para>
+/// <list type="bullet">
+///   <item>30-second TTL on the Redis entry, so a token leaked to logs
+///         is unredeemable after 30 s.</item>
+///   <item>Atomic single-use via <c>GETDEL</c> — only the FIRST
+///         redeemer wins; an attacker who reads logs within 30 s must
+///         beat the legitimate client to the SSE endpoint.</item>
+///   <item>Scope: the token unlocks read-only SSE streams; it cannot be
+///         used for state-changing API calls.</item>
+/// </list>
+/// <para>
+/// Net residual risk: an attacker with low-latency read access to
+/// access logs racing a legitimate SSE handshake within a 30-second
+/// window can hijack ONE stream of read-only events. Accepted on the
+/// basis of the bounded blast radius. See R17 §SSE-token in the
+/// security architecture for the formal acceptance record.
+/// </para>
 /// </summary>
 public sealed class SseTokenAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,

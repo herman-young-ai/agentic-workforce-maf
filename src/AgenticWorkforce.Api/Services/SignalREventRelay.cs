@@ -13,17 +13,70 @@ namespace AgenticWorkforce.Api.Services;
 /// <c>project:{id}</c> group.
 ///
 /// <para><b>Resilience</b></para>
-/// Per-message <c>try/catch</c>: one malformed payload or a transient hub
-/// send failure must not kill the relay loop. Failures are logged; the
-/// authoritative <c>project_events</c> row remains in PostgreSQL so a
-/// reconnecting client can replay via the events feed.
+/// Two layers of fault tolerance:
+/// <list type="bullet">
+///   <item>
+///     Per-message <c>try/catch</c>: one malformed payload or a transient
+///     hub send failure must not break the subscription loop.
+///   </item>
+///   <item>
+///     Per-subscription <c>try/catch</c> with exponential backoff: if the
+///     subscription iterator itself faults (multiplexer reset, network
+///     partition that exhausts retries, anything that terminates the
+///     <c>IAsyncEnumerable</c>), the relay sleeps and resubscribes. The
+///     default <c>BackgroundServiceExceptionBehavior</c> would otherwise
+///     stop the relay — and silently, since the host keeps running.
+///   </item>
+/// </list>
+/// The authoritative <c>project_events</c> row remains in PostgreSQL so a
+/// reconnecting client can replay via the events feed; live delivery is
+/// best-effort by design.
 /// </summary>
 internal sealed class SignalREventRelay(
     IRedisPubSubService redisPubSub,
     IHubContext<ProjectHub, IProjectHubClient> hubContext,
     ILogger<SignalREventRelay> logger) : BackgroundService
 {
+    private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MaxBackoff     = TimeSpan.FromMinutes(1);
+
     protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        var backoff = InitialBackoff;
+
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await RunSubscriptionAsync(ct);
+                return; // RunSubscriptionAsync only exits cleanly when ct cancels.
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "SignalR event relay subscription faulted; restarting in {BackoffSeconds:F1}s",
+                    backoff.TotalSeconds);
+
+                try
+                {
+                    await Task.Delay(backoff, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                backoff = TimeSpan.FromMilliseconds(
+                    Math.Min(backoff.TotalMilliseconds * 2, MaxBackoff.TotalMilliseconds));
+            }
+        }
+    }
+
+    private async Task RunSubscriptionAsync(CancellationToken ct)
     {
         logger.LogInformation(
             "SignalR event relay starting — subscribing to {Pattern}",
@@ -60,6 +113,6 @@ internal sealed class SignalREventRelay(
             }
         }
 
-        logger.LogInformation("SignalR event relay stopped");
+        logger.LogInformation("SignalR event relay subscription completed normally");
     }
 }

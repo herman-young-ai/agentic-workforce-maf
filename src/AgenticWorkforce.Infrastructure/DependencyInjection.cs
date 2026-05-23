@@ -74,9 +74,16 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IEventPublisher, RedisEventPublisher>();
 
         services.AddScoped<AuditInterceptor>();
+        // ProjectEventDispatchInterceptor turns RedisEventPublisher's "Add"
+        // calls into a transactional outbox — it dispatches to Redis pub/sub
+        // AFTER the SaveChanges commit succeeds. Same scope as AppDbContext.
+        services.AddScoped<ProjectEventDispatchInterceptor>();
 
         services.AddDbContext<AppDbContext>((sp, opts) =>
-            opts.UseAgenticWorkforce(sp.GetRequiredService<NpgsqlDataSource>(), sp.GetRequiredService<AuditInterceptor>()));
+            opts.UseAgenticWorkforce(
+                sp.GetRequiredService<NpgsqlDataSource>(),
+                sp.GetRequiredService<AuditInterceptor>(),
+                sp.GetRequiredService<ProjectEventDispatchInterceptor>()));
 
         // Repositories — every Api handler's data access flows through these
         // (rule DL-001, Principle 4 Wrap the Core). AppDbContext stays internal

@@ -72,4 +72,44 @@ public class CrossUserIdempotencyTests(ApiWebApplicationFactory factory)
             "Bob must not receive Alice's cached idempotency response (Principle: user-scoped keys).");
         projectB.Name.Should().StartWith("bob-");
     }
+
+    /// <summary>
+    /// Atomic claim: when the same user fires two requests with the same
+    /// idempotency key concurrently, only ONE wins the claim and creates
+    /// the resource. The other surfaces a 409 — by the time it retries,
+    /// the first request's response is in the cache.
+    /// </summary>
+    [Fact]
+    public async Task SameUser_SameKey_Concurrent_OneSucceedsOneGets409()
+    {
+        var userId = Guid.NewGuid();
+        await _factory.SeedUserAsync(userId, "concurrent@idem.local");
+        var sharedKey = $"concurrent-{Guid.NewGuid():N}";
+
+        // Fire two simultaneous requests sharing the user AND the key.
+        // Pre-fix, both would have missed the cache, both would have
+        // created a project, both would have returned 201. The atomic
+        // claim makes one win and the other surface as 409.
+        var firstPost  = SendCreateProjectAsync(userId, sharedKey, "first");
+        var secondPost = SendCreateProjectAsync(userId, sharedKey, "second");
+
+        var responses = await Task.WhenAll(firstPost, secondPost);
+
+        // Exactly one request should create the resource and the other
+        // should be rejected as a concurrent claim.
+        var statuses = responses.Select(r => (int)r.StatusCode).OrderBy(s => s).ToArray();
+        statuses.Should().Equal([201, 409]);
+    }
+
+    private async Task<HttpResponseMessage> SendCreateProjectAsync(
+        Guid userId, string idempotencyKey, string namePrefix)
+    {
+        var client = _factory.CreateAuthenticatedClient(userId, "concurrent@idem.local", Roles.Owner);
+        client.DefaultRequestHeaders.Add("X-Idempotency-Key", idempotencyKey);
+        return await client.PostAsJsonAsync("/api/v1/projects", new
+        {
+            name      = $"{namePrefix}-{Guid.NewGuid():N}",
+            objective = $"{namePrefix} project"
+        });
+    }
 }

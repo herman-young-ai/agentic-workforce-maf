@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using AgenticWorkforce.Domain.Exceptions;
 
 namespace AgenticWorkforce.Api.Core.Auth;
 
@@ -31,7 +32,13 @@ public interface IIdempotencyService
 internal sealed class InMemoryIdempotencyService : IIdempotencyService, IDisposable
 {
     private static readonly TimeSpan Ttl           = TimeSpan.FromHours(24);
+    private static readonly TimeSpan ClaimTtl      = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(15);
+
+    // Sentinel value stored against a key while a request is in flight.
+    // Mirrors RedisIdempotencyService.ClaimSentinel so the two backings
+    // share semantics — see that class for the full rationale.
+    internal static readonly object ClaimSentinel = new();
 
     private readonly ConcurrentDictionary<string, (object Response, DateTime ExpiresAt)> _cache = new();
     private readonly Timer _sweepTimer;
@@ -46,13 +53,35 @@ internal sealed class InMemoryIdempotencyService : IIdempotencyService, IDisposa
     public Task<T?> GetCachedResponseAsync<T>(Guid userId, string key, CancellationToken ct = default)
     {
         var composed = Compose(userId, key);
-        if (_cache.TryGetValue(composed, out var entry) && entry.ExpiresAt > DateTime.UtcNow)
-            return Task.FromResult((T?)entry.Response);
-        return Task.FromResult<T?>(default);
+
+        // Atomic claim: TryAdd succeeds only if no entry exists. Mirrors
+        // the Redis SETNX semantic so this and RedisIdempotencyService
+        // give the same concurrency guarantee under tests.
+        var claim = (ClaimSentinel, DateTime.UtcNow.Add(ClaimTtl));
+        if (_cache.TryAdd(composed, claim))
+            return Task.FromResult<T?>(default);  // we own the work
+
+        // An entry was already there. Decide which kind.
+        if (!_cache.TryGetValue(composed, out var entry) || entry.ExpiresAt <= DateTime.UtcNow)
+        {
+            // Expired between TryAdd and TryGetValue. Treat as a fresh
+            // claim by overwriting — last writer wins.
+            _cache[composed] = claim;
+            return Task.FromResult<T?>(default);
+        }
+
+        if (ReferenceEquals(entry.Response, ClaimSentinel))
+            throw new ConflictException(
+                "Idempotency",
+                "another request with the same idempotency key is already in flight; retry shortly");
+
+        return Task.FromResult((T?)entry.Response);
     }
 
     public Task CacheResponseAsync<T>(Guid userId, string key, T response, CancellationToken ct = default)
     {
+        // Overwrites our own claim sentinel with the real response and
+        // extends the TTL to the long-lived value.
         _cache[Compose(userId, key)] = (response!, DateTime.UtcNow.Add(Ttl));
         return Task.CompletedTask;
     }

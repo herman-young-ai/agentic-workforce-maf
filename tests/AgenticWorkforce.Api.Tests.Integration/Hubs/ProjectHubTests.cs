@@ -59,11 +59,18 @@ public class ProjectHubTests(ApiWebApplicationFactory factory)
         await connection.StartAsync();
         await connection.InvokeAsync("JoinProject", projectId);
 
-        // Publish via the real IEventPublisher — same path Worker would take.
+        // Publish via the real IEventPublisher — same path Worker would
+        // take. The publisher only adds to the DbContext (transactional
+        // outbox); the explicit SaveChanges flushes both the row and the
+        // post-commit Redis dispatch (handled by
+        // ProjectEventDispatchInterceptor).
         using (var scope = _factory.Services.CreateScope())
         {
             var publisher = scope.ServiceProvider
                 .GetRequiredService<AgenticWorkforce.Domain.Interfaces.Services.IEventPublisher>();
+            var db = scope.ServiceProvider
+                .GetRequiredService<AgenticWorkforce.Infrastructure.Data.AppDbContext>();
+
             await publisher.PublishAsync(new AgenticWorkforce.Domain.Entities.ProjectEvent
             {
                 ProjectId = projectId,
@@ -72,6 +79,7 @@ public class ProjectHubTests(ApiWebApplicationFactory factory)
                 Severity  = AgenticWorkforce.Domain.Enums.EventSeverity.Info,
                 Data      = """{"hello":"world"}"""
             });
+            await db.SaveChangesAsync();
         }
 
         var received = await eventTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));

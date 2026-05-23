@@ -17,7 +17,7 @@ public static class AppDbContextOptionsBuilderExtensions
     public static DbContextOptionsBuilder UseAgenticWorkforce(
         this DbContextOptionsBuilder options,
         NpgsqlDataSource dataSource,
-        IInterceptor auditInterceptor)
+        params IInterceptor[] interceptors)
     {
         return options
             .UseNpgsql(dataSource, npgsql =>
@@ -34,6 +34,6 @@ public static class AppDbContextOptionsBuilderExtensions
                 }
             })
             .UseSnakeCaseNamingConvention()
-            .AddInterceptors(auditInterceptor);
+            .AddInterceptors(interceptors);
     }
 }

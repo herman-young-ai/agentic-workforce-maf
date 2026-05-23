@@ -39,6 +39,15 @@ internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisP
     /// lifetime, and the unsubscribe-on-dispose contract — the public
     /// methods just supply a <see cref="RedisChannel"/> and a mapper from
     /// <c>(channel, value)</c> to the consumer's element shape.
+    /// <para>
+    /// The handler is captured into a local variable so the matching
+    /// <see cref="ISubscriber.UnsubscribeAsync(RedisChannel, Action{RedisChannel, RedisValue}?, CommandFlags)"/>
+    /// in the finally block removes <i>only this subscription's</i>
+    /// handler. The (channel)-overload of UnsubscribeAsync would remove
+    /// every handler for the channel, silently killing every other
+    /// concurrent subscriber on the same name — that's the bug a multi-
+    /// SSE-client scenario would have triggered.
+    /// </para>
     /// </summary>
     private async IAsyncEnumerable<T> SubscribeCoreAsync<T>(
         RedisChannel channel,
@@ -53,10 +62,11 @@ internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisP
             SingleWriter = false
         });
 
-        await subscriber.SubscribeAsync(channel, (ch, message) =>
+        Action<RedisChannel, RedisValue> handler = (ch, message) =>
         {
             if (message.HasValue) queue.Writer.TryWrite(map(ch, message));
-        });
+        };
+        await subscriber.SubscribeAsync(channel, handler);
 
         try
         {
@@ -65,7 +75,7 @@ internal sealed class RedisPubSubService(IConnectionMultiplexer redis) : IRedisP
         }
         finally
         {
-            await subscriber.UnsubscribeAsync(channel);
+            await subscriber.UnsubscribeAsync(channel, handler);
         }
     }
 }
