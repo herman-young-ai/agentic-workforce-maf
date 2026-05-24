@@ -28,6 +28,7 @@
          have to make Runtime / Factory / Tools / Prompts public just to test them. -->
     <InternalsVisibleTo Include="AgenticWorkforce.Agents.Tests.Unit" />
     <InternalsVisibleTo Include="AgenticWorkforce.Architecture.Tests" />
+    <InternalsVisibleTo Include="AgenticWorkforce.Api.Tests.Integration" />
   </ItemGroup>
 
   <!-- Category prompts authored under Prompts/Categories/*.md and embedded. Organization prompts are

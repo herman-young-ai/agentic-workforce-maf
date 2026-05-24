@@ -28,6 +28,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgenticWorkforce.Api\AgenticWorkforce.Api.csproj" />
+    <!-- 7c+ Platform tool tests need direct access to Agents factories. The Api host
+         itself does not run agents (Worker does), so the test composes Agents tools
+         against the Api host's repositories without forcing AddAgentServices into Api. -->
+    <ProjectReference Include="..\..\src\AgenticWorkforce.Agents\AgenticWorkforce.Agents.csproj" />
   </ItemGroup>
 
 </Project>
