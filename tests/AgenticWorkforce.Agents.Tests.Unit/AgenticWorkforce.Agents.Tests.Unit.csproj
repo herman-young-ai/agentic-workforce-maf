@@ -4,8 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- CA1707: xUnit's Method_Scenario_Result test names use underscores by convention -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- CA1707: xUnit's Method_Scenario_Result test names use underscores by convention.
+         S927: hand-rolled fakes use shorter param names than the interface declares; the
+         tests don't care about names since calls go through positional parameters only. -->
+    <NoWarn>$(NoWarn);CA1707;S927</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

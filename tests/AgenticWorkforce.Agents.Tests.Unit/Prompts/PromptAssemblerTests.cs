@@ -69,4 +69,19 @@ public class PromptAssemblerTests
 
         await act.Should().ThrowAsync<InvalidStateException>().WithMessage("*totally-made-up*");
     }
+
+    [Fact]
+    public async Task AssembleAsync_OrganizationLayer_ContainsCanonicalPrinciplesAnchor()
+    {
+        // The csproj copies docs/003-principles/001-architectural-principles.md verbatim
+        // into Prompts/Organization/principles.md before build, and the assembler embeds
+        // it as the first system layer. If the copy step ever silently drops out (renamed
+        // docs, excluded resource, broken target) the canonical policy goes missing from
+        // every agent's context. Pin the anchor so regressions are loud.
+        var sut = new PromptAssembler();
+
+        var result = await sut.AssembleAsync(MakeCatalog(), MakeProject(), projectAgent: null);
+
+        result.Should().Contain("Architectural Principles");
+    }
 }

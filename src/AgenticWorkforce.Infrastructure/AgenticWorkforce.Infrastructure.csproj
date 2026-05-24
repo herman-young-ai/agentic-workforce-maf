@@ -23,6 +23,8 @@
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.O200kBase" />
     <!-- AddOptions&lt;T&gt;().Bind(IConfiguration) extension -->
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <!-- IHostedService for startup data-seeding services (StubModelPricingSeeder). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,7 +1,9 @@
+using AgenticWorkforce.Agents.Middleware;
 using AgenticWorkforce.Domain.Exceptions;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -26,6 +28,7 @@ internal sealed class AgentRuntime(
     IProjectRepository projects,
     IProjectAgentRepository projectAgents,
     IAgentFactory factory,
+    IModelPricingService pricing,
     TimeProvider clock,
     IOptions<AgentRuntimeOptions> options,
     ILogger<AgentRuntime> logger) : IAgentRuntime
@@ -60,15 +63,16 @@ internal sealed class AgentRuntime(
             Input: request.Input);
 
         var timeout = request.Timeout ?? _opts.DefaultExecutionTimeout;
+        if (timeout <= TimeSpan.Zero)
+            throw new ValidationException(
+                $"AgentExecutionRequest.Timeout must be positive (got {timeout}). Pass null to use the configured default.");
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
 
         var agent = await factory.CreateAsync(entry, project, projectAgent, execContext, cts.Token).ConfigureAwait(false);
         var start = clock.GetTimestamp();
 
-        logger.LogInformation(
-            "Executing agent {AgentName} v{AgentVersion} for project {ProjectId} task {TaskId}",
-            entry.AgentName, entry.AgentVersion, request.ProjectId, request.TaskId);
+        LogExecuting(logger, entry.AgentName, entry.AgentVersion, request.ProjectId, request.TaskId, null);
 
         try
         {
@@ -77,19 +81,27 @@ internal sealed class AgentRuntime(
             var response = await agent.RunAsync(input, session, cancellationToken: cts.Token).ConfigureAwait(false);
 
             var elapsed = clock.GetElapsedTime(start);
-            // Per-iteration token/cost figures are written to LlmCalls by CostTrackingChatClient
-            // and aggregated by CostQueryService; the per-execution rollup happens in Phase 7
-            // (which also reads the per-task LlmCall sum). Until then, the response carries
-            // the aggregate text only.
+            var usage         = response.Usage;
+            var inputTokens   = usage?.InputTokenCount  ?? 0;
+            var outputTokens  = usage?.OutputTokenCount ?? 0;
+            var cacheRead     = usage.CacheTokens(UsageExtensions.CacheReadKey);
+            var cacheCreate   = usage.CacheTokens(UsageExtensions.CacheCreateKey);
+            var model         = ResolveModelId(entry);
+            // Aggregate per-execution cost from the response's UsageDetails. CostTrackingChatClient
+            // also writes a per-iteration LlmCall row for accounting; this rollup is the
+            // synchronous value the caller can read without waiting for the drain.
+            var costUsd = await pricing.CalculateCostAsync(
+                model, inputTokens, outputTokens, cacheRead, cacheCreate, cts.Token).ConfigureAwait(false);
+
             return new AgentExecutionResult(
                 Success: true,
                 Output: response.Text ?? string.Empty,
                 Error: null,
-                InputTokens: 0,
-                OutputTokens: 0,
-                CostUsd: 0,
+                InputTokens: inputTokens,
+                OutputTokens: outputTokens,
+                CostUsd: costUsd,
                 DurationSeconds: elapsed.TotalSeconds,
-                ToolCallCount: 0);
+                ToolCallCount: CountToolCalls(response));
         }
         catch (BudgetExceededException)
         {
@@ -115,11 +127,43 @@ internal sealed class AgentRuntime(
             // Unknown failure from the agent or pipeline. Log with full stack, wrap in a typed
             // exception so the Worker activity surface treats it as a recognised agent failure
             // rather than a host-level panic. Original exception is the inner; details survive in logs.
-            logger.LogError(ex, "Agent {AgentName} execution failed for project {ProjectId}", entry.AgentName, request.ProjectId);
+            LogFailure(logger, entry.AgentName, request.ProjectId, ex);
             throw new AgentExecutionException(entry.AgentName, ex.Message);
         }
     }
 
+    private static readonly Action<ILogger, string, string?, Guid, Guid, Exception?> LogExecuting =
+        LoggerMessage.Define<string, string?, Guid, Guid>(LogLevel.Information,
+            new EventId(1, nameof(LogExecuting)),
+            "Executing agent {AgentName} v{AgentVersion} for project {ProjectId} task {TaskId}");
+
+    private static readonly Action<ILogger, string, Guid, Exception?> LogFailure =
+        LoggerMessage.Define<string, Guid>(LogLevel.Error,
+            new EventId(2, nameof(LogFailure)),
+            "Agent {AgentName} execution failed for project {ProjectId}");
+
     private static string FormatObjective(string objective, string? input)
         => string.IsNullOrWhiteSpace(input) ? objective : $"{objective}\n\n## Input\n\n{input}";
+
+    private string ResolveModelId(Domain.Entities.AgentCatalog entry)
+    {
+        // Phase 7 parses catalog.ModelConfig (jsonb) for the per-agent model id.
+        // Until then the catalog routes through the configured default, which
+        // matches AgentFactory.ResolveProviderAndModel.
+        _ = entry;
+        return _opts.DefaultModel;
+    }
+
+    private static int CountToolCalls(AgentResponse response)
+    {
+        var count = 0;
+        foreach (var msg in response.Messages)
+        {
+            foreach (var content in msg.Contents)
+            {
+                if (content is FunctionCallContent) count++;
+            }
+        }
+        return count;
+    }
 }

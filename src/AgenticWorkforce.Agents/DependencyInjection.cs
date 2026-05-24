@@ -40,6 +40,8 @@ public static class AgentServiceExtensions
               && o.MaxCachedChatClientPipelines > 0
               && o.DefaultExecutionTimeout > TimeSpan.Zero
               && o.LlmCallDrainFlushInterval > TimeSpan.Zero
+              && o.LlmCallDrainMaxRetries > 0
+              && o.LlmCallDrainRetryBaseDelay > TimeSpan.Zero
               && o.ChatClientPipelineExpiration > TimeSpan.Zero
               && o.BudgetWarningThreshold is > 0 and <= 1
               && !string.IsNullOrWhiteSpace(o.DefaultProvider)

@@ -14,6 +14,17 @@ namespace AgenticWorkforce.Agents.Services;
 /// <see cref="ILlmCallRepository"/>. Batches up to
 /// <see cref="AgentRuntimeOptions.LlmCallDrainBatchSize"/> records or
 /// <see cref="AgentRuntimeOptions.LlmCallDrainFlushInterval"/> (whichever first).
+///
+/// <para><b>Failure policy (Principle 8: fail fast, never degrade silently)</b></para>
+/// <c>LlmCall</c> rows are the system of record for cost and budget
+/// (<c>BudgetService.GetStatusAsync</c> sums them). Silently dropping a
+/// batch corrupts the budget guard. On a persistence error this service
+/// retries with bounded exponential backoff
+/// (<see cref="AgentRuntimeOptions.LlmCallDrainMaxRetries"/> attempts,
+/// starting at <see cref="AgentRuntimeOptions.LlmCallDrainRetryBaseDelay"/>).
+/// If every retry fails the exception is rethrown so the host process
+/// crashes — operators must restore persistence before agents can run
+/// again. There is no silent-drop path.
 /// </summary>
 internal sealed class LlmCallDrainService(
     ChannelReader<LlmCall> reader,
@@ -23,6 +34,8 @@ internal sealed class LlmCallDrainService(
 {
     private readonly int _batchSize = options.Value.LlmCallDrainBatchSize;
     private readonly TimeSpan _flushInterval = options.Value.LlmCallDrainFlushInterval;
+    private readonly int _maxRetries = options.Value.LlmCallDrainMaxRetries;
+    private readonly TimeSpan _retryBaseDelay = options.Value.LlmCallDrainRetryBaseDelay;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -52,19 +65,55 @@ internal sealed class LlmCallDrainService(
 
             if (buffer.Count == 0) continue;
 
+            await PersistBatchOrThrowAsync(buffer, stoppingToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task PersistBatchOrThrowAsync(List<LlmCall> batch, CancellationToken stoppingToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
                 var repo = scope.ServiceProvider.GetRequiredService<ILlmCallRepository>();
-                await repo.AddBatchAsync(buffer, stoppingToken).ConfigureAwait(false);
-                logger.LogDebug("Drained {Count} LlmCall records.", buffer.Count);
+                await repo.AddBatchAsync(batch, stoppingToken).ConfigureAwait(false);
+                LogDrained(logger, batch.Count, null);
+                return;
             }
-#pragma warning disable CA1031 // Drain service must not crash on transient persistence errors; surface via metrics in later phases.
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Shutdown in flight — bubble the cancellation; partial drain is acceptable on graceful stop.
+                throw;
+            }
+            catch (Exception ex) when (attempt < _maxRetries)
+            {
+                var delay = TimeSpan.FromMilliseconds(_retryBaseDelay.TotalMilliseconds * Math.Pow(2, attempt - 1));
+                LogRetry(logger, attempt, _maxRetries, batch.Count, delay, ex);
+                await Task.Delay(delay, stoppingToken).ConfigureAwait(false);
+            }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to persist batch of {Count} LlmCall records; will retry next interval.", buffer.Count);
+                LogExhausted(logger, _maxRetries, batch.Count, ex);
+                // Principle 8: rethrow so the host crashes. LlmCall is the source of truth
+                // for spend; a silent drop here would corrupt every BudgetService check.
+                throw;
             }
-#pragma warning restore CA1031
         }
     }
+
+    private static readonly Action<ILogger, int, Exception?> LogDrained =
+        LoggerMessage.Define<int>(LogLevel.Debug,
+            new EventId(1, nameof(LogDrained)),
+            "Drained {Count} LlmCall records.");
+
+    private static readonly Action<ILogger, int, int, int, TimeSpan, Exception?> LogRetry =
+        LoggerMessage.Define<int, int, int, TimeSpan>(LogLevel.Warning,
+            new EventId(2, nameof(LogRetry)),
+            "LlmCall batch persistence attempt {Attempt}/{MaxAttempts} failed for {Count} records; retrying in {Delay}.");
+
+    private static readonly Action<ILogger, int, int, Exception?> LogExhausted =
+        LoggerMessage.Define<int, int>(LogLevel.Critical,
+            new EventId(3, nameof(LogExhausted)),
+            "LlmCall batch persistence exhausted {MaxAttempts} attempts for {Count} records; rethrowing to crash host.");
 }

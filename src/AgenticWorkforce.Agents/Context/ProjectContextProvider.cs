@@ -13,9 +13,12 @@ internal sealed class ProjectContextProvider(
     string modelId)
 {
     public Task<ContextPacket> GetCurrentPacketAsync(CancellationToken ct = default)
+        // Phase 7 will load the AgenticTask row by context.TaskId and pass its
+        // definition. Until then we pass null — labelling the agent's Objective
+        // as "## Current Task" would mislead the assembled prompt.
         => assembler.BuildAsync(
             context.ProjectId,
-            context.Objective,
+            taskDefinition: null,
             domainTags: null,
             modelId,
             ct);

@@ -31,14 +31,15 @@
   </ItemGroup>
 
   <!-- Category prompts authored under Prompts/Categories/*.md and embedded. Organization prompts are
-       generated below from docs/003-principles and docs/005-standards so the canonical principles
-       remain the single source of truth (Phase 6 plan §3.3). -->
+       copied below verbatim from docs/003-principles and docs/005-standards so the canonical
+       principles remain the single source of truth (Phase 6 plan §3.3). The copy fails the build
+       if a source file is missing so docs/ stays authoritative. -->
   <ItemGroup>
     <EmbeddedResource Include="Prompts/Categories/*.md" />
     <EmbeddedResource Include="Prompts/Organization/*.md" />
   </ItemGroup>
 
-  <Target Name="GenerateOrganizationPrompts" BeforeTargets="BeforeBuild">
+  <Target Name="CopyOrganizationPromptsFromDocs" BeforeTargets="BeforeBuild">
     <PropertyGroup>
       <_OrgDir>$(MSBuildProjectDirectory)/Prompts/Organization</_OrgDir>
       <_DocsPrinciples>$(MSBuildProjectDirectory)/../../docs/003-principles/001-architectural-principles.md</_DocsPrinciples>
@@ -46,11 +47,11 @@
       <_DocsSecurityStd>$(MSBuildProjectDirectory)/../../docs/005-standards/06-security-coding-standards.md</_DocsSecurityStd>
     </PropertyGroup>
     <Error Condition="!Exists('$(_DocsPrinciples)')"
-           Text="Agents prompt generation requires $(_DocsPrinciples). Update docs/ or the GenerateOrganizationPrompts target." />
+           Text="Agents prompt copy requires $(_DocsPrinciples). Update docs/ or CopyOrganizationPromptsFromDocs." />
     <Error Condition="!Exists('$(_DocsCodingStd)')"
-           Text="Agents prompt generation requires $(_DocsCodingStd)." />
+           Text="Agents prompt copy requires $(_DocsCodingStd)." />
     <Error Condition="!Exists('$(_DocsSecurityStd)')"
-           Text="Agents prompt generation requires $(_DocsSecurityStd)." />
+           Text="Agents prompt copy requires $(_DocsSecurityStd)." />
     <MakeDir Directories="$(_OrgDir)" />
     <Copy SourceFiles="$(_DocsPrinciples)"  DestinationFiles="$(_OrgDir)/principles.md"        SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(_DocsCodingStd)"   DestinationFiles="$(_OrgDir)/coding-standards.md"  SkipUnchangedFiles="true" />

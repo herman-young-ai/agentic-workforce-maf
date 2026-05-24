@@ -21,11 +21,19 @@ internal sealed class AuditingChatClient(
         var ctx = ChatOptionsTagger.Read(options);
         var response = await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
 
-        logger.LogInformation(
-            "AgentCall project={ProjectId} task={TaskId} agent={AgentName} model={ModelId} provider={Provider} in={InputTokens} out={OutputTokens}",
-            ctx.ProjectId, ctx.TaskId, ctx.AgentName, options?.ModelId, ctx.Provider,
-            response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0);
+        // LoggerMessage.Define caps at 6 type args, so the token counts are folded into
+        // a structured "io" tuple string — still single-allocation in the logger but
+        // keeps the call within the supported overload set.
+        var io = $"in={response.Usage?.InputTokenCount ?? 0} out={response.Usage?.OutputTokenCount ?? 0}";
+        LogAgentCall(logger,
+            ctx.ProjectId, ctx.TaskId, ctx.AgentName ?? string.Empty,
+            options?.ModelId ?? string.Empty, ctx.Provider, io, null);
 
         return response;
     }
+
+    private static readonly Action<ILogger, Guid, Guid?, string, string, string, string, Exception?> LogAgentCall =
+        LoggerMessage.Define<Guid, Guid?, string, string, string, string>(LogLevel.Information,
+            new EventId(1, nameof(LogAgentCall)),
+            "AgentCall project={ProjectId} task={TaskId} agent={AgentName} model={ModelId} provider={Provider} usage={Usage}");
 }

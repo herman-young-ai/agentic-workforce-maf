@@ -150,10 +150,23 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IModelPricingRepository, ModelPricingRepository>();
         services.AddScoped<IModelPricingService, ModelPricingService>();
         services.AddScoped<ILlmCallRepository, LlmCallRepository>();
-        // Token counters: Tiktoken (OpenAI families) + Anthropic (Claude). The router is the public ITokenCounter.
+        // Token counters: Tiktoken (OpenAI families) + Anthropic (Claude) + Stub (dev pipeline).
+        // The router is the public ITokenCounter; concrete counters resolve from the same singleton scope.
         services.AddSingleton<TiktokenTokenCounter>();
         services.AddSingleton<AnthropicTokenCounter>();
+        services.AddSingleton<StubTokenCounter>();
         services.AddSingleton<ITokenCounter, TokenCounterRouter>();
+
+        // Stub provider needs a zero-cost ModelPricing row to satisfy the no-fallback rule
+        // in ModelPricingService. Gated on AgentRuntime:DefaultProvider == "stub" so real
+        // provider deployments never run this seeder.
+        if (string.Equals(
+                configuration["AgentRuntime:DefaultProvider"],
+                "stub",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHostedService<StubModelPricingSeeder>();
+        }
 
         // Service stubs — replaced in Phase 6+ (embedding provider) and Phase 11 (blob storage)
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();

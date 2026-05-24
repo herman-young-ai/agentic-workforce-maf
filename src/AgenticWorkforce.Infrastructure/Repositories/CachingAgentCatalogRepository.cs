@@ -55,10 +55,15 @@ internal sealed class CachingAgentCatalogRepository(
 
     public async Task<bool> SetEnabledAsync(Guid id, bool enabled, CancellationToken ct = default)
     {
+        // Look up the agent first so we know which name key to evict. The kill-switch
+        // path (disable an agent) must take effect immediately — a stale name->row read
+        // for up to 5 minutes after disable would let agents run that an admin just halted
+        // (Principle 17 — Human Authority). The extra DB round trip is acceptable for the
+        // rare enable/disable case.
+        var existing = await inner.GetByIdAsync(id, ct);
         var result = await inner.SetEnabledAsync(id, enabled, ct);
         cache.Remove(IdKey(id));
-        // Name unknown without a lookup; evict any stale name->row reads by versioned probe is overkill —
-        // accept up to 5-min staleness on the name key for the rare enable/disable case.
+        if (existing is not null) cache.Remove(NameKey(existing.AgentName));
         return result;
     }
 }

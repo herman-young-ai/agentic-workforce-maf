@@ -8,7 +8,17 @@ namespace AgenticWorkforce.Api.Tests.Unit.Services;
 public class TokenCounterRouterTests
 {
     private static TokenCounterRouter MakeSut() =>
-        new(new TiktokenTokenCounter(), new AnthropicTokenCounter());
+        new(new TiktokenTokenCounter(), new AnthropicTokenCounter(), new StubTokenCounter());
+
+    [Theory]
+    [InlineData("stub-model")]
+    [InlineData("stub-fast")]
+    public async Task RoutesStubFamily(string model)
+    {
+        var sut = MakeSut();
+        var count = await sut.CountAsync("12345678", model); // 8 chars / 4 = 2
+        count.Should().Be(2);
+    }
 
     [Theory]
     [InlineData("gpt-4o")]

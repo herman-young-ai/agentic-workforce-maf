@@ -72,20 +72,19 @@ internal sealed class ChatClientFactory : IChatClientFactory, IDisposable
 
     private IChatClient BuildPipeline(string provider, string model)
     {
-        // Raw provider — StubChatClient until real Foundry/Azure OpenAI credentials are wired.
         IChatClient pipeline = new StubChatClient();
 
-        // Inner -> outer (each wraps the previous)
-        pipeline = new OpenTelemetryChatClient(pipeline, sourceName: $"awp.agent.{provider}");
+        // Inner -> outer (each wraps the previous).
+        // FunctionInvokingChatClient owns the tool loop, so middleware above it sees one
+        // aggregate call per agent turn while middleware below it sees each iteration.
+        // BudgetEnforcing is registered twice (PreCheckOnly outer, RecordSpend inner) so
+        // exhausted projects fail before the loop runs while per-iteration spend is still
+        // tracked accurately.
+        pipeline = new OpenTelemetryChatClient(pipeline, sourceName: $"awp.agent.{provider}.{model}");
         pipeline = new ContentSafetyChatClient(pipeline);
         pipeline = new BudgetEnforcingChatClient(pipeline, _budgets, _pricing, _tokens, BudgetClientMode.RecordSpend);
         pipeline = new CostTrackingChatClient(pipeline, _pricing, _llmCallWriter, _clock);
         pipeline = new AuditingChatClient(pipeline, _loggerFactory.CreateLogger<AuditingChatClient>());
-
-        // FunctionInvocation owns the tool loop. Everything above sees one aggregate call per agent turn;
-        // everything below sees each tool-loop iteration. The split BudgetEnforcing client (PreCheck above,
-        // RecordSpend below) is intentional — pre-check rejects exhausted budgets without entering the loop;
-        // record-spend writes per-iteration spend so the budget tracks reality.
         pipeline = new FunctionInvokingChatClient(pipeline);
         pipeline = new BudgetEnforcingChatClient(pipeline, _budgets, _pricing, _tokens, BudgetClientMode.PreCheckOnly);
 

@@ -12,7 +12,8 @@ namespace AgenticWorkforce.Infrastructure.Services;
 /// </summary>
 internal sealed class TokenCounterRouter(
     TiktokenTokenCounter openAi,
-    AnthropicTokenCounter anthropic) : ITokenCounter
+    AnthropicTokenCounter anthropic,
+    StubTokenCounter stub) : ITokenCounter
 {
     public Task<int> CountAsync(string text, string modelId, CancellationToken ct = default)
     {
@@ -29,6 +30,8 @@ internal sealed class TokenCounterRouter(
             || modelId.StartsWith("o3", StringComparison.OrdinalIgnoreCase)
             || modelId.StartsWith("text-embedding", StringComparison.OrdinalIgnoreCase))
             return openAi;
+        if (modelId.StartsWith("stub", StringComparison.OrdinalIgnoreCase))
+            return stub;
         throw new InvalidStateException(
             $"No tokenizer registered for model '{modelId}'. Register a counter in TokenCounterRouter or extend the router (no default tokenizer fallback — different tokenizers give different counts).");
     }

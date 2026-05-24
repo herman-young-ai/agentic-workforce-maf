@@ -11,6 +11,8 @@
 
 **No mocking frameworks.** No Moq, NSubstitute, or FakeItEasy. Tests use real implementations.
 
+**Hand-rolled in-test fakes are permitted in unit tests** for interfaces whose only production implementation depends on infrastructure that the unit-test layer doesn't own (e.g. `IBudgetService` for a middleware test, `ILearningRepository` for an assembler test). The fake must be defined as a `private sealed class` inside the test file, implement the interface verbatim (no behavioural compromises), and throw `NotSupportedException` for members the test doesn't exercise. This is *not* a substitute for integration coverage — anything that touches PostgreSQL, Redis, or HTTP stays in integration tests with Testcontainers. Rationale: the rule above bans mocking *frameworks* (records-of-calls, dynamic stubs, "verify" assertions). It does not ban writing a small, explicit test double when the seam being tested genuinely sits above the infrastructure boundary.
+
 ## Test Types
 
 ### Unit Tests (`*.Tests.Unit`)

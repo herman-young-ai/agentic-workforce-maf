@@ -32,6 +32,20 @@ public sealed class AgentRuntimeOptions
     /// <summary>Drain flush interval: send a partial batch if it has been this long since the last flush.</summary>
     public TimeSpan LlmCallDrainFlushInterval { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Maximum persistence retry attempts (inclusive of the first) for a single
+    /// <c>LlmCall</c> batch before <see cref="Services.LlmCallDrainService"/>
+    /// rethrows and crashes the host. Principle 8: the row is the source of
+    /// truth for budget; silent drops are forbidden.
+    /// </summary>
+    public int LlmCallDrainMaxRetries { get; set; } = 5;
+
+    /// <summary>
+    /// Base delay for the drain service's exponential backoff between retries
+    /// (delay = base * 2^(attempt-1)). 200 ms × {1, 2, 4, 8, 16} = ~6 s total.
+    /// </summary>
+    public TimeSpan LlmCallDrainRetryBaseDelay { get; set; } = TimeSpan.FromMilliseconds(200);
+
     /// <summary>How many (provider, model) IChatClient pipelines to keep cached at most.</summary>
     public int MaxCachedChatClientPipelines { get; set; } = 32;
 
