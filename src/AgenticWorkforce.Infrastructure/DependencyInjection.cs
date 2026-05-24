@@ -172,6 +172,15 @@ public static class InfrastructureServiceExtensions
         // Service stubs — replaced in Phase 6+ (embedding provider) and Phase 11 (blob storage)
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();
 
+        // Phase 7d — platform service-account actor for agent-initiated writes
+        // (run_objective, start_research, add_principle). PlatformActorSeeder
+        // ensures the User row exists at host startup; PlatformActor reads
+        // the configured UUID + email and surfaces them to tools.
+        services.AddOptions<PlatformActorOptions>()
+            .Bind(configuration.GetSection(PlatformActorOptions.SectionName));
+        services.AddSingleton<IPlatformActor, PlatformActor>();
+        services.AddHostedService<PlatformActorSeeder>();
+
         // AgentSeedService is wired by AddAgentSeedingFromAssembly when a host supplies
         // the seed assembly (Worker does, Api does not — Api never runs the seeder).
 

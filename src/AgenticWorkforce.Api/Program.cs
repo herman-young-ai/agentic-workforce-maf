@@ -270,11 +270,18 @@ builder.Services.AddProblemDetails();
 var app = builder.Build();
 // ---------------------------------------------------------------------------
 
-if (app.Environment.IsDevelopment())
+// Schema must be present before any IHostedService.StartAsync runs (Phase 7d's
+// PlatformActorSeeder inserts into the Users table, so a missing schema would
+// crash the host). Testing env shares this need with Development — integration
+// tests use a fresh Testcontainers PostgreSQL on every run.
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 {
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<AppDbContext>()
         .Database.MigrateAsync();
+}
+if (app.Environment.IsDevelopment())
+{
     app.UseSwagger();
     app.UseSwaggerUI();
 }

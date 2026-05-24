@@ -78,4 +78,14 @@ public class AgentExecutionException(string agentName, string detail)
     : AppException(ErrorCodes.AgentExecutionFailed,
         $"Agent '{agentName}' execution failed: {detail}", 500);
 
+/// <summary>
+/// Raised by Phase 7 sandbox tool stubs when called. The real ACA Dynamic Sessions
+/// integration lands in Phase 11; until then every sandbox tool surfaces this
+/// exception so the agent loop sees the unavailability as a tool error rather
+/// than a hallucinable "not available" string (Principle 8 — fail loud).
+/// </summary>
+public class SandboxUnavailableException(string toolName)
+    : AppException(ErrorCodes.SandboxUnavailable,
+        $"Sandbox tool '{toolName}' is not yet available — ACA Dynamic Sessions wiring lands in Phase 11.", 503);
+
 #pragma warning restore RCS1194

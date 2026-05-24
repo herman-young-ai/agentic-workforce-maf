@@ -48,6 +48,7 @@ public static class ErrorCodes
     public const string AgentExecutionFailed   = "AGENT_EXECUTION_FAILED";
     public const string AgentNotFound          = "AGENT_NOT_FOUND";
     public const string AgentToolDenied        = "AGENT_TOOL_DENIED";
+    public const string SandboxUnavailable     = "AGENT_SANDBOX_UNAVAILABLE";
 
     // -- Workflow (WF_*) --
     public const string WfExecutionFailed      = "WF_EXECUTION_FAILED";

@@ -58,7 +58,13 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>, IAsyncDi
             {
                 ["ConnectionStrings:agenticworkforce"] = _postgres.GetConnectionString(),
                 ["ConnectionStrings:redis"]            = _redis.GetConnectionString(),
-                ["DocumentStore:BasePath"]             = _documentStoreRoot
+                ["DocumentStore:BasePath"]             = _documentStoreRoot,
+                // Phase 7d — platform service-account actor for agent-initiated writes.
+                // Configuration is required (Principle 14); a stable UUID + email lets
+                // every test that exercises the write tools succeed without per-test seeding.
+                ["PlatformActor:UserId"]      = "00000000-0000-0000-0000-00000000a9e7",
+                ["PlatformActor:Email"]       = "platform-agent@awp.test",
+                ["PlatformActor:DisplayName"] = "Platform Agent (Test)"
             }));
 
         // Override JWT auth with the test auth handler so tests don't need real tokens
