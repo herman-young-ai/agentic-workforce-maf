@@ -5,6 +5,7 @@ using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Pagination;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Agents.Tools.Project;
 
@@ -15,17 +16,17 @@ namespace AgenticWorkforce.Agents.Tools.Project;
 /// </summary>
 internal sealed class GetArtifactsTool(
     Guid projectId,
-    IArtifactRepository artifacts) : IPlatformTool
+    IArtifactRepository artifacts,
+    int pageSize) : IPlatformTool
 {
     public const string ToolName = "project.get_artifacts";
-    private const int PageSize = 50;
 
     [Description("List the project's artifacts (id, title, type, agent that produced it, created/retracted timestamps). Retracted artifacts are filtered out.")]
     public async Task<string> ListArtifactsAsync(CancellationToken cancellationToken = default)
     {
         var page = await artifacts.ListByProjectPagedAsync(
             projectId,
-            new PagedQuery(Page: 1, PageSize: PageSize),
+            new PagedQuery(Page: 1, PageSize: pageSize),
             cancellationToken).ConfigureAwait(false);
 
         var items = page.Items
@@ -49,7 +50,11 @@ internal sealed class GetArtifactsTool(
         public string ToolName => GetArtifactsTool.ToolName;
         public AITool Create(IServiceProvider services, Guid projectId)
         {
-            var tool = new GetArtifactsTool(projectId, services.GetRequiredService<IArtifactRepository>());
+            var opts = services.GetRequiredService<IOptions<AgentRuntimeOptions>>().Value;
+            var tool = new GetArtifactsTool(
+                projectId,
+                services.GetRequiredService<IArtifactRepository>(),
+                pageSize: opts.PlatformToolDefaultPageSize);
             return AIFunctionFactory.Create(tool.ListArtifactsAsync, new AIFunctionFactoryOptions { Name = ToolName });
         }
     }

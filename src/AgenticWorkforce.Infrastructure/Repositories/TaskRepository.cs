@@ -67,6 +67,26 @@ internal sealed class TaskRepository(AppDbContext db) : ITaskRepository
             .OrderBy(t => t.CreatedAt)
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<AgenticTask>> ListRecentOutcomesAsync(
+        Guid projectId,
+        int count,
+        CancellationToken ct = default)
+    {
+        if (count <= 0) return Array.Empty<AgenticTask>();
+
+        // Terminal statuses driven by the enum, not a hand-maintained literal so the
+        // set evolves with TaskStatus.
+        return await db.Tasks
+            .AsNoTracking()
+            .Where(t => t.ProjectId == projectId
+                     && (t.Status == TaskStatus.Completed
+                      || t.Status == TaskStatus.Failed
+                      || t.Status == TaskStatus.Cancelled))
+            .OrderByDescending(t => t.CompletedAt)
+            .Take(count)
+            .ToListAsync(ct);
+    }
+
     public Task<int> CountByProjectAsync(
         Guid projectId,
         IReadOnlyList<TaskStatus>? statuses = null,

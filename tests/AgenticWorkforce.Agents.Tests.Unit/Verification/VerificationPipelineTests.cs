@@ -1,8 +1,10 @@
+using AgenticWorkforce.Agents;
 using AgenticWorkforce.Agents.Verification;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace AgenticWorkforce.Agents.Tests.Unit.Verification;
@@ -25,8 +27,15 @@ public class VerificationPipelineTests
         Interface = interfaceJson
     };
 
+    private static readonly IOptions<AgentRuntimeOptions> DefaultOptions =
+        Options.Create(new AgentRuntimeOptions());
+
     private static VerificationPipeline Build(IAgentRuntime runtime) =>
-        new(new SchemaVerifier(), new RuleVerifier(), new AgentVerifier(runtime), NullLogger<VerificationPipeline>.Instance);
+        new(
+            new SchemaVerifier(),
+            new RuleVerifier(DefaultOptions),
+            new AgentVerifier(runtime, DefaultOptions),
+            NullLogger<VerificationPipeline>.Instance);
 
     [Fact]
     public async Task Pipeline_AllTiersPass_ReturnsPass()

@@ -13,10 +13,21 @@ namespace AgenticWorkforce.Domain.Agents;
 /// Producers and consumers both use camelCase via
 /// <c>JsonNamingPolicy.CamelCase</c>. The records are immutable so a write +
 /// read round trip is bit-equal modulo whitespace.
+///
+/// <para><b>About <see cref="Options"/></b></para>
+/// The <see cref="Options"/> instance is the canonical camelCase-web profile
+/// for every Domain / Agents-side serialise + deserialise — both the jsonb
+/// columns above AND the JSON tool-output strings returned to the LLM. The
+/// Agents layer cannot reference <c>Infrastructure.Events.WireJsonOptions</c>,
+/// so this is its default. Treat <see cref="Options"/> as "the Domain layer's
+/// web JSON options", not as "options for these records only".
 /// </summary>
 public static class AgentJsonShapes
 {
-    /// <summary>JsonSerializerOptions to use for every read and every write of these shapes.</summary>
+    /// <summary>
+    /// Canonical camelCase JSON options for every Domain / Agents-side
+    /// serialise + deserialise. See type docs for the broader-than-it-sounds scope.
+    /// </summary>
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

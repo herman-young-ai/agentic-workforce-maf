@@ -1,4 +1,5 @@
 using AgenticWorkforce.Domain.Entities;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Agents.Verification;
 
@@ -9,13 +10,13 @@ namespace AgenticWorkforce.Agents.Verification;
 ///
 /// <list type="bullet">
 ///   <item>Non-empty output (whitespace-only is rejected).</item>
-///   <item>Output length below 200 KB (sanity bound — Principle 19).</item>
+///   <item>Output length within <see cref="AgentRuntimeOptions.VerificationMaxOutputChars"/> (Principle 19 bound).</item>
 ///   <item>Task is not already in a terminal status when verification runs.</item>
 /// </list>
 /// </summary>
-internal sealed class RuleVerifier
+internal sealed class RuleVerifier(IOptions<AgentRuntimeOptions> options)
 {
-    private const int MaxOutputLength = 200_000;
+    private readonly int _maxOutputLength = options.Value.VerificationMaxOutputChars;
 
     public VerificationResult Verify(AgenticTask task, string output)
     {
@@ -28,11 +29,11 @@ internal sealed class RuleVerifier
                 feedback: "Produce a non-empty response that addresses the task objective.");
         }
 
-        if (output.Length > MaxOutputLength)
+        if (output.Length > _maxOutputLength)
         {
             return VerificationResult.Fail(FailureTier.Tier2Rules,
-                $"Agent output is {output.Length} characters; max is {MaxOutputLength}.",
-                feedback: $"Trim or summarise the output to fit within {MaxOutputLength} characters. Promote bulky detail to an Artifact instead.");
+                $"Agent output is {output.Length} characters; max is {_maxOutputLength}.",
+                feedback: $"Trim or summarise the output to fit within {_maxOutputLength} characters. Promote bulky detail to an Artifact instead.");
         }
 
         // Verification only runs against a task that just completed; if the task is already

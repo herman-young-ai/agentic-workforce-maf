@@ -6,33 +6,36 @@ using AgenticWorkforce.Domain.Pagination;
 using AgenticWorkforce.Domain.Queries;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Agents.Tools.Project;
 
 /// <summary>
 /// <c>project.get_history</c> — returns the most recent project events. The
-/// model picks how many to retrieve (capped at 100, the Principle 19 page-size
-/// ceiling), but never the project — that is captured at construction.
+/// model picks how many to retrieve; the count is bounded by the platform's
+/// <c>PlatformToolMaxPageSize</c> (Principle 19 page-size ceiling).
 /// </summary>
 internal sealed class GetHistoryTool(
     Guid projectId,
-    IEventRepository events) : IPlatformTool
+    IEventRepository events,
+    int defaultCount,
+    int maxCount) : IPlatformTool
 {
     public const string ToolName = "project.get_history";
-    private const int MaxCount = 100;
 
-    [Description("Return the most recent project events (most recent first). The count is capped at 100.")]
+    [Description("Return the most recent project events (most recent first).")]
     public async Task<string> GetHistoryAsync(
-        [Description("Number of events to retrieve; values above 100 are clamped to 100.")] int count = 50,
+        [Description("Number of events to retrieve. Optional; clamped to the platform's PlatformToolMaxPageSize.")] int? count = null,
         CancellationToken cancellationToken = default)
     {
-        if (count <= 0) count = 50;
-        if (count > MaxCount) count = MaxCount;
+        var effective = count ?? defaultCount;
+        if (effective <= 0) effective = defaultCount;
+        if (effective > maxCount) effective = maxCount;
 
         var page = await events.ListByProjectPagedAsync(
             projectId,
             new EventFilter(),
-            new PagedQuery(Page: 1, PageSize: count),
+            new PagedQuery(Page: 1, PageSize: effective),
             cancellationToken).ConfigureAwait(false);
 
         var items = page.Items.Select(e => new
@@ -55,7 +58,12 @@ internal sealed class GetHistoryTool(
         public string ToolName => GetHistoryTool.ToolName;
         public AITool Create(IServiceProvider services, Guid projectId)
         {
-            var tool = new GetHistoryTool(projectId, services.GetRequiredService<IEventRepository>());
+            var opts = services.GetRequiredService<IOptions<AgentRuntimeOptions>>().Value;
+            var tool = new GetHistoryTool(
+                projectId,
+                services.GetRequiredService<IEventRepository>(),
+                defaultCount: opts.PlatformToolDefaultPageSize,
+                maxCount:     opts.PlatformToolMaxPageSize);
             return AIFunctionFactory.Create(tool.GetHistoryAsync, new AIFunctionFactoryOptions { Name = ToolName });
         }
     }

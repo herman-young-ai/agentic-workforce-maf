@@ -180,6 +180,57 @@ public class WritePlatformToolsTests(ApiWebApplicationFactory factory) : IAsyncL
     }
 
     [Fact]
+    public async Task GetRecentOutcomes_SurfacesCompletedTasksPastInFlightOnes()
+    {
+        // Regression guard for the original "filter in memory after paging" bug:
+        // many in-flight tasks would push the most recent completed one off the page.
+        var project = await SeedProjectAsync();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            // 30 proposed tasks (in-flight) created BEFORE the completed task — these would
+            // dominate any creation-time ordering.
+            for (var i = 0; i < 30; i++)
+            {
+                db.Tasks.Add(new AgenticTask
+                {
+                    ProjectId = project.Id,
+                    Objective = $"in-flight {i}",
+                    AgentName = "test.agent",
+                    Type      = TaskType.AgentTask,
+                    Status    = TaskStatus.Proposed,
+                    Source    = TaskSource.Manual
+                });
+            }
+            // One completed task created after the proposals — this is what the supervisor
+            // wants to see when asking for "recent outcomes".
+            db.Tasks.Add(new AgenticTask
+            {
+                ProjectId   = project.Id,
+                Objective   = "completed work",
+                AgentName   = "test.agent",
+                Type        = TaskType.AgentTask,
+                Status      = TaskStatus.Completed,
+                Source      = TaskSource.Manual,
+                StartedAt   = DateTime.UtcNow.AddMinutes(-5),
+                CompletedAt = DateTime.UtcNow,
+                CostUsd     = 0.01m
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var queryScope = _factory.Services.CreateScope();
+        var tool = (AIFunction)new GetRecentOutcomesTool.Factory().Create(queryScope.ServiceProvider, project.Id);
+
+        var raw = await tool.InvokeAsync(new AIFunctionArguments { ["count"] = 5 });
+        using var doc = JsonDocument.Parse(raw!.ToString()!);
+        doc.RootElement.GetArrayLength().Should().Be(1, "the one Completed task must surface even with 30 in-flight tasks ahead of it on creation time.");
+        doc.RootElement[0].GetProperty("status").GetString().Should().Be("Completed");
+        doc.RootElement[0].GetProperty("objective").GetString().Should().Be("completed work");
+    }
+
+    [Fact]
     public async Task GetPastDecisions_EmptyProject_ReturnsEmptyArray()
     {
         var project = await SeedProjectAsync();

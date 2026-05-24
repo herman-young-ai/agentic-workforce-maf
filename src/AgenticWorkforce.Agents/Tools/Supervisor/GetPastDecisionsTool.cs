@@ -5,6 +5,7 @@ using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Pagination;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Agents.Tools.Supervisor;
 
@@ -16,17 +17,17 @@ namespace AgenticWorkforce.Agents.Tools.Supervisor;
 /// </summary>
 internal sealed class GetPastDecisionsTool(
     Guid projectId,
-    IDecisionRepository decisions) : IPlatformTool
+    IDecisionRepository decisions,
+    int pageSize) : IPlatformTool
 {
     public const string ToolName = "project.get_past_decisions";
-    private const int PageSize = 50;
 
     [Description("List previous decisions made on the project (ref, domain, decision, rationale, made-by, status). Reversed decisions are filtered out.")]
     public async Task<string> GetPastDecisionsAsync(CancellationToken cancellationToken = default)
     {
         var page = await decisions.ListByProjectPagedAsync(
             projectId,
-            new PagedQuery(Page: 1, PageSize: PageSize),
+            new PagedQuery(Page: 1, PageSize: pageSize),
             cancellationToken).ConfigureAwait(false);
 
         var items = page.Items
@@ -53,7 +54,11 @@ internal sealed class GetPastDecisionsTool(
         public string ToolName => GetPastDecisionsTool.ToolName;
         public AITool Create(IServiceProvider services, Guid projectId)
         {
-            var tool = new GetPastDecisionsTool(projectId, services.GetRequiredService<IDecisionRepository>());
+            var opts = services.GetRequiredService<IOptions<AgentRuntimeOptions>>().Value;
+            var tool = new GetPastDecisionsTool(
+                projectId,
+                services.GetRequiredService<IDecisionRepository>(),
+                pageSize: opts.PlatformToolDefaultPageSize);
             return AIFunctionFactory.Create(tool.GetPastDecisionsAsync, new AIFunctionFactoryOptions { Name = ToolName });
         }
     }

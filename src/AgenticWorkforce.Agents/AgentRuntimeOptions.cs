@@ -67,4 +67,33 @@ public sealed class AgentRuntimeOptions
     /// Required: cannot be null/empty. Fails fast at DI startup if unset.
     /// </summary>
     public string DefaultModel { get; set; } = "stub-model";
+
+    /// <summary>
+    /// Default page size used by read-only Platform tools that return a single
+    /// page (lists of artefacts, learnings, workflows, decisions). Phase 7 wires
+    /// this into every tool so a fleet-wide change is one config value, not six.
+    /// </summary>
+    public int PlatformToolDefaultPageSize { get; set; } = 50;
+
+    /// <summary>
+    /// Hard cap on Platform tool page sizes — applies to tools that let the model
+    /// pick the count (<c>project.get_history</c>, <c>project.get_recent_outcomes</c>).
+    /// Honours Principle 19's "max 100 per page" rule.
+    /// </summary>
+    public int PlatformToolMaxPageSize { get; set; } = 100;
+
+    /// <summary>
+    /// Hard ceiling (in characters) on the agent output that <see cref="Verification.RuleVerifier"/>
+    /// will accept. Larger outputs fail Tier 2 with an "output too large" feedback
+    /// message — promote bulky detail to an Artifact (Principle 19 bound).
+    /// </summary>
+    public int VerificationMaxOutputChars { get; set; } = 200_000;
+
+    /// <summary>
+    /// Characters of agent output sent to <c>system.verifier</c> for Tier 3 review.
+    /// Anything longer is truncated with a "[truncated]" suffix. Approximation: at
+    /// ~4 chars/token this is ~3,000 tokens, comfortably inside Haiku-class context
+    /// for the verifier agent.
+    /// </summary>
+    public int VerificationPreviewChars { get; set; } = 10_000;
 }

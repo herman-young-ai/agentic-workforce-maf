@@ -2,6 +2,7 @@ using System.Text.Json;
 using AgenticWorkforce.Domain.Agents;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Interfaces.Services;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Agents.Verification;
 
@@ -15,12 +16,12 @@ namespace AgenticWorkforce.Agents.Verification;
 /// The <see cref="VerificationPipeline"/> guards against verifying the
 /// verifier's own output (see <c>VerificationPipeline.SystemVerifierAgentName</c>).
 /// </summary>
-internal sealed class AgentVerifier(IAgentRuntime runtime)
+internal sealed class AgentVerifier(IAgentRuntime runtime, IOptions<AgentRuntimeOptions> options)
 {
     /// <summary>Public so <see cref="VerificationPipeline"/> can compare against it.</summary>
     public const string AgentName = "system.verifier";
 
-    private const int MaxOutputPreviewLength = 10_000;
+    private readonly int _previewChars = options.Value.VerificationPreviewChars;
 
     public async Task<VerificationResult> VerifyAsync(
         AgenticTask task, string output, AgentCatalog agent, CancellationToken cancellationToken)
@@ -28,8 +29,8 @@ internal sealed class AgentVerifier(IAgentRuntime runtime)
         ArgumentNullException.ThrowIfNull(task);
         ArgumentNullException.ThrowIfNull(agent);
 
-        var truncated = output.Length > MaxOutputPreviewLength
-            ? output[..MaxOutputPreviewLength] + "…[truncated]"
+        var truncated = output.Length > _previewChars
+            ? output[.._previewChars] + "…[truncated]"
             : output;
 
         var objective = $$"""

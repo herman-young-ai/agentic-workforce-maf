@@ -5,6 +5,7 @@ using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Pagination;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Agents.Tools.Project;
 
@@ -15,17 +16,17 @@ namespace AgenticWorkforce.Agents.Tools.Project;
 /// </summary>
 internal sealed class ListWorkflowsTool(
     Guid projectId,
-    IWorkflowDefinitionRepository workflows) : IPlatformTool
+    IWorkflowDefinitionRepository workflows,
+    int pageSize) : IPlatformTool
 {
     public const string ToolName = "project.list_workflows";
-    private const int PageSize = 50;
 
     [Description("List workflow definitions available on the current project (id, name, version, enabled flag, locked flag).")]
     public async Task<string> ListAsync(CancellationToken cancellationToken = default)
     {
         var page = await workflows.ListByProjectPagedAsync(
             projectId,
-            new PagedQuery(Page: 1, PageSize: PageSize),
+            new PagedQuery(Page: 1, PageSize: pageSize),
             cancellationToken).ConfigureAwait(false);
 
         var items = page.Items.Select(w => new
@@ -47,7 +48,11 @@ internal sealed class ListWorkflowsTool(
         public string ToolName => ListWorkflowsTool.ToolName;
         public AITool Create(IServiceProvider services, Guid projectId)
         {
-            var tool = new ListWorkflowsTool(projectId, services.GetRequiredService<IWorkflowDefinitionRepository>());
+            var opts = services.GetRequiredService<IOptions<AgentRuntimeOptions>>().Value;
+            var tool = new ListWorkflowsTool(
+                projectId,
+                services.GetRequiredService<IWorkflowDefinitionRepository>(),
+                pageSize: opts.PlatformToolDefaultPageSize);
             return AIFunctionFactory.Create(tool.ListAsync, new AIFunctionFactoryOptions { Name = ToolName });
         }
     }

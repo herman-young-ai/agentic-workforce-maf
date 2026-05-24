@@ -47,8 +47,13 @@ public static class AgentServiceExtensions
               && o.ChatClientPipelineExpiration > TimeSpan.Zero
               && o.BudgetWarningThreshold is > 0 and <= 1
               && !string.IsNullOrWhiteSpace(o.DefaultProvider)
-              && !string.IsNullOrWhiteSpace(o.DefaultModel),
-            "AgentRuntimeOptions has invalid values (non-positive numeric, empty default provider/model, or warn-threshold outside (0,1]).");
+              && !string.IsNullOrWhiteSpace(o.DefaultModel)
+              && o.PlatformToolDefaultPageSize > 0
+              && o.PlatformToolMaxPageSize >= o.PlatformToolDefaultPageSize
+              && o.VerificationMaxOutputChars > 0
+              && o.VerificationPreviewChars > 0
+              && o.VerificationPreviewChars <= o.VerificationMaxOutputChars,
+            "AgentRuntimeOptions has invalid values (non-positive numeric, empty default provider/model, warn-threshold outside (0,1], or page-size/verification bounds inconsistent).");
 
         // Runtime
         services.AddScoped<IAgentRuntime, AgentRuntime>();

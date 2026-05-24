@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 namespace AgenticWorkforce.Infrastructure.Services;
 
@@ -55,8 +56,30 @@ internal sealed class PlatformActorSeeder(
             IsServiceAccount = true
         });
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        LogSeeded(logger, opts.UserId, opts.Email, null);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            LogSeeded(logger, opts.UserId, opts.Email, null);
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            // Two host replicas (or two test fixtures running in parallel) raced the
+            // FirstOrDefault check. The PK / email unique constraint did the right
+            // thing on the loser; both replicas can now safely treat the user as seeded.
+            LogRaceLost(logger, opts.UserId, opts.Email, null);
+        }
+    }
+
+    private static bool IsUniqueViolation(DbUpdateException ex)
+    {
+        // Npgsql surfaces unique-constraint violations as PostgresException with
+        // SQLSTATE 23505. The exception graph is DbUpdateException -> PostgresException.
+        for (var inner = ex.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is PostgresException pg && pg.SqlState == PostgresErrorCodes.UniqueViolation)
+                return true;
+        }
+        return false;
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -65,6 +88,11 @@ internal sealed class PlatformActorSeeder(
         LoggerMessage.Define<Guid, string>(LogLevel.Information,
             new EventId(1, nameof(LogSeeded)),
             "Seeded platform service-account user {UserId} ({Email}).");
+
+    private static readonly Action<ILogger, Guid, string, Exception?> LogRaceLost =
+        LoggerMessage.Define<Guid, string>(LogLevel.Debug,
+            new EventId(3, nameof(LogRaceLost)),
+            "Lost race seeding platform service-account user {UserId} ({Email}); another host already inserted it.");
 
     private static readonly Action<ILogger, Guid, string, Exception?> LogAlreadySeeded =
         LoggerMessage.Define<Guid, string>(LogLevel.Debug,

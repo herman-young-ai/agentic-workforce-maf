@@ -26,6 +26,18 @@ public interface ITaskRepository
     Task<IReadOnlyList<AgenticTask>> GetBoardAsync(Guid projectId, CancellationToken ct = default);
 
     /// <summary>
+    /// Returns the most recent terminal tasks (Completed, Failed, Cancelled) for a
+    /// project, ordered by <c>CompletedAt</c> descending and limited to
+    /// <paramref name="count"/>. Backs <c>project.get_recent_outcomes</c>: the consumer
+    /// always wants the latest resolved outcomes, regardless of how many in-flight
+    /// tasks sit in front of them on a creation-time ordering.
+    /// </summary>
+    Task<IReadOnlyList<AgenticTask>> ListRecentOutcomesAsync(
+        Guid projectId,
+        int count,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Counts tasks in a project, optionally restricted to a set of statuses
     /// (e.g. ["Approved", "Queued", "Running"] for "active task count").
     /// </summary>

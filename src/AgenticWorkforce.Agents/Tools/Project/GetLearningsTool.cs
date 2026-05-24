@@ -6,6 +6,7 @@ using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Pagination;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AgenticWorkforce.Agents.Tools.Project;
 
@@ -16,17 +17,17 @@ namespace AgenticWorkforce.Agents.Tools.Project;
 /// </summary>
 internal sealed class GetLearningsTool(
     Guid projectId,
-    ILearningRepository learnings) : IPlatformTool
+    ILearningRepository learnings,
+    int pageSize) : IPlatformTool
 {
     public const string ToolName = "project.get_learnings";
-    private const int PageSize = 50;
 
     [Description("List the project's active learnings (id, title, body, confidence, evidence). Retracted/pending learnings are not returned.")]
     public async Task<string> GetLearningsAsync(CancellationToken cancellationToken = default)
     {
         var page = await learnings.ListByProjectPagedAsync(
             projectId,
-            new PagedQuery(Page: 1, PageSize: PageSize),
+            new PagedQuery(Page: 1, PageSize: pageSize),
             cancellationToken).ConfigureAwait(false);
 
         var items = page.Items
@@ -49,7 +50,11 @@ internal sealed class GetLearningsTool(
         public string ToolName => GetLearningsTool.ToolName;
         public AITool Create(IServiceProvider services, Guid projectId)
         {
-            var tool = new GetLearningsTool(projectId, services.GetRequiredService<ILearningRepository>());
+            var opts = services.GetRequiredService<IOptions<AgentRuntimeOptions>>().Value;
+            var tool = new GetLearningsTool(
+                projectId,
+                services.GetRequiredService<ILearningRepository>(),
+                pageSize: opts.PlatformToolDefaultPageSize);
             return AIFunctionFactory.Create(tool.GetLearningsAsync, new AIFunctionFactoryOptions { Name = ToolName });
         }
     }
