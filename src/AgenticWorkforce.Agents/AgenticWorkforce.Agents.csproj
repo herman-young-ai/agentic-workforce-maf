@@ -2,15 +2,59 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>AgenticWorkforce.Agents</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- MAF base — IChatClient, ChatMessage, DelegatingChatClient, FunctionInvokingChatClient -->
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <!-- MAF Agents — AIAgent, ChatClientAgent, AgentSession, ChatClientAgentOptions -->
+    <PackageReference Include="Microsoft.Agents.AI" />
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" />
+    <!-- Bounded MemoryCache for ChatClientFactory pipeline cache -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+    <!-- BackgroundService for LlmCallDrainService (Microsoft.Extensions.Hosting.Abstractions follows transitively) -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- Microsoft.Extensions.{DependencyInjection, Logging, Hosting}.Abstractions flow in transitively. -->
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AgenticWorkforce.Domain\AgenticWorkforce.Domain.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Allow unit and architecture tests to see internal types so we don't
+         have to make Runtime / Factory / Tools / Prompts public just to test them. -->
+    <InternalsVisibleTo Include="AgenticWorkforce.Agents.Tests.Unit" />
+    <InternalsVisibleTo Include="AgenticWorkforce.Architecture.Tests" />
+  </ItemGroup>
+
+  <!-- Category prompts authored under Prompts/Categories/*.md and embedded. Organization prompts are
+       generated below from docs/003-principles and docs/005-standards so the canonical principles
+       remain the single source of truth (Phase 6 plan §3.3). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Prompts/Categories/*.md" />
+    <EmbeddedResource Include="Prompts/Organization/*.md" />
+  </ItemGroup>
+
+  <Target Name="GenerateOrganizationPrompts" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_OrgDir>$(MSBuildProjectDirectory)/Prompts/Organization</_OrgDir>
+      <_DocsPrinciples>$(MSBuildProjectDirectory)/../../docs/003-principles/001-architectural-principles.md</_DocsPrinciples>
+      <_DocsCodingStd>$(MSBuildProjectDirectory)/../../docs/005-standards/01-csharp-coding-standards.md</_DocsCodingStd>
+      <_DocsSecurityStd>$(MSBuildProjectDirectory)/../../docs/005-standards/06-security-coding-standards.md</_DocsSecurityStd>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_DocsPrinciples)')"
+           Text="Agents prompt generation requires $(_DocsPrinciples). Update docs/ or the GenerateOrganizationPrompts target." />
+    <Error Condition="!Exists('$(_DocsCodingStd)')"
+           Text="Agents prompt generation requires $(_DocsCodingStd)." />
+    <Error Condition="!Exists('$(_DocsSecurityStd)')"
+           Text="Agents prompt generation requires $(_DocsSecurityStd)." />
+    <MakeDir Directories="$(_OrgDir)" />
+    <Copy SourceFiles="$(_DocsPrinciples)"  DestinationFiles="$(_OrgDir)/principles.md"        SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_DocsCodingStd)"   DestinationFiles="$(_OrgDir)/coding-standards.md"  SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_DocsSecurityStd)" DestinationFiles="$(_OrgDir)/security-posture.md"  SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

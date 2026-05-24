@@ -5,8 +5,11 @@ using AgenticWorkforce.Infrastructure.Data;
 using AgenticWorkforce.Infrastructure.Events;
 using AgenticWorkforce.Infrastructure.Repositories;
 using AgenticWorkforce.Infrastructure.Services;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using StackExchange.Redis;
 
@@ -95,7 +98,15 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
         services.AddScoped<IProjectMemberRepository, ProjectMemberRepository>();
         services.AddScoped<IProjectAgentRepository, ProjectAgentRepository>();
-        services.AddScoped<IAgentCatalogRepository, AgentCatalogRepository>();
+
+        // Agent catalog: caching decorator over the EF Core repository (Phase 6 §7).
+        // Both registrations are needed: the inner concrete is resolved by the decorator,
+        // and the cached decorator satisfies IAgentCatalogRepository for everyone else.
+        services.AddScoped<AgentCatalogRepository>();
+        services.AddScoped<IAgentCatalogRepository>(sp =>
+            new CachingAgentCatalogRepository(
+                sp.GetRequiredService<AgentCatalogRepository>(),
+                sp.GetRequiredService<IMemoryCache>()));
         services.AddScoped<IPromptVersionRepository, PromptVersionRepository>();
 
         // Phase 4 repositories.
@@ -127,6 +138,22 @@ public static class InfrastructureServiceExtensions
             if (int.TryParse(configuration["CostQuery:MaxRangeDays"], out var days) && days > 0)
                 opts.MaxRangeDays = days;
         });
+
+        // Phase 6 (Agent Runtime) — services and repos that the Agents project consumes.
+        services.AddMemoryCache();                       // Backs CachingAgentCatalogRepository.
+        services.TryAddSingleton(TimeProvider.System);   // BudgetService + ChatClientFactory + AgentRuntime use this.
+        services.AddOptions<BudgetServiceOptions>()
+            .Bind(configuration.GetSection(BudgetServiceOptions.SectionName))
+            .Validate(o => o.WarningThreshold is > 0 and <= 1,
+                "Budget.WarningThreshold must be in the interval (0, 1].");
+        services.AddScoped<IBudgetService, BudgetService>();
+        services.AddScoped<IModelPricingRepository, ModelPricingRepository>();
+        services.AddScoped<IModelPricingService, ModelPricingService>();
+        services.AddScoped<ILlmCallRepository, LlmCallRepository>();
+        // Token counters: Tiktoken (OpenAI families) + Anthropic (Claude). The router is the public ITokenCounter.
+        services.AddSingleton<TiktokenTokenCounter>();
+        services.AddSingleton<AnthropicTokenCounter>();
+        services.AddSingleton<ITokenCounter, TokenCounterRouter>();
 
         // Service stubs — replaced in Phase 6+ (embedding provider) and Phase 11 (blob storage)
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();

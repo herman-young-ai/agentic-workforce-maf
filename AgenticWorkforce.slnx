@@ -12,5 +12,7 @@
     <Project Path="tests/AgenticWorkforce.Api.Tests.Unit/AgenticWorkforce.Api.Tests.Unit.csproj" />
     <Project Path="tests/AgenticWorkforce.Api.Tests.Integration/AgenticWorkforce.Api.Tests.Integration.csproj" />
     <Project Path="tests/AgenticWorkforce.Domain.Tests.Unit/AgenticWorkforce.Domain.Tests.Unit.csproj" />
+    <Project Path="tests/AgenticWorkforce.Agents.Tests.Unit/AgenticWorkforce.Agents.Tests.Unit.csproj" />
+    <Project Path="tests/AgenticWorkforce.Architecture.Tests/AgenticWorkforce.Architecture.Tests.csproj" />
   </Folder>
 </Solution>
