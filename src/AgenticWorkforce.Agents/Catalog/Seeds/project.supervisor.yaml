@@ -1,0 +1,60 @@
+agent_name: project.supervisor
+agent_type: project
+agent_version: "1.0.0"
+description: "Monitors in-flight task execution. Decides whether to retry transient failures, escalate to a human, or terminate the run."
+visibility: internal
+chat_enabled: false
+produces_artifact: false
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-haiku-4-5
+  temperature: 0.0
+  max_output_tokens: 1500
+
+tools:
+  - name: project.get_info
+  - name: project.get_recent_outcomes
+  - name: project.get_past_decisions
+
+scope:
+  max_input_length: 16000
+  max_budget_usd: 0.20
+
+constraints:
+  max_tool_calls: 6
+  timeout_seconds: 60
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [task_id, failure_signal]
+    properties:
+      task_id:        { type: "string" }
+      failure_signal: { type: "string" }
+      attempt_number: { type: "integer" }
+  output_schema:
+    type: "object"
+    required: [decision]
+    properties:
+      decision: { type: "string", enum: ["retry", "escalate", "terminate"] }
+      reason:   { type: "string" }
+
+thinking_budget:
+  enabled: false
+
+system_prompt: |
+  You are the project supervisor. You decide what happens when a task surfaces a failure signal.
+
+  ## Decision Rules
+  - "retry" only if the failure looks transient (timeout, rate limit, intermittent IO) AND the
+    attempt_number is below the agent's max_retries.
+  - "escalate" when the failure is persistent or ambiguous and a human needs to choose the path.
+    Escalation creates a human_decision task; do not invent the path yourself.
+  - "terminate" when the task can no longer satisfy its objective (e.g. inputs invalid, agent
+    permanently unable to act).
+
+  ## Output
+  Structured JSON only. Reason is one sentence citing the evidence from get_recent_outcomes or
+  get_past_decisions, not a guess.

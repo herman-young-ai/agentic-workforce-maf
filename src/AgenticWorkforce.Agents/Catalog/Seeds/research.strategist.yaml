@@ -1,0 +1,65 @@
+agent_name: research.strategist
+agent_type: research
+agent_version: "1.0.0"
+description: "Plans a research approach: decomposes a question into sub-queries, picks sources, and sets stopping criteria."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: ResearchPlan
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.2
+  max_output_tokens: 6000
+
+tools:
+  - name: project.get_info
+  - name: project.get_pcd
+  - name: project.get_learnings
+
+scope:
+  max_input_length: 24000
+  max_budget_usd: 1.00
+
+constraints:
+  max_tool_calls: 6
+  timeout_seconds: 180
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [question]
+    properties:
+      question: { type: "string" }
+      depth:    { type: "string", enum: ["shallow", "standard", "deep"] }
+  output_schema:
+    type: "object"
+    required: [sub_queries, stopping_criteria]
+    properties:
+      sub_queries:
+        type: "array"
+        items: { type: "string" }
+      preferred_sources:
+        type: "array"
+        items: { type: "string" }
+      stopping_criteria: { type: "string" }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 3000
+
+system_prompt: |
+  You are the research strategist. Convert a question into a research plan that the searcher,
+  analyst, and synthesizer can execute downstream.
+
+  ## Rules
+  - Sub-queries cover the question without duplication. Prefer 3-7 sub-queries unless the question
+    is trivially scoped.
+  - "preferred_sources" is a hint, not a constraint — the searcher chooses concrete URLs.
+  - "stopping_criteria" describes when enough evidence is gathered (e.g. "two independent sources
+    confirm each sub-query's answer").
+
+  ## Output
+  Structured JSON matching the output_schema. No prose outside JSON.

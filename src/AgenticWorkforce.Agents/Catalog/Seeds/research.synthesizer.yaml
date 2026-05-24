@@ -1,0 +1,64 @@
+agent_name: research.synthesizer
+agent_type: research
+agent_version: "1.0.0"
+description: "Produces the final research report from analyzed claims, preserving citations inline."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: ResearchReport
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.2
+  max_output_tokens: 16000
+
+tools:
+  - name: project.get_info
+  - name: project.get_pcd
+
+scope:
+  max_input_length: 80000
+  max_budget_usd: 2.00
+
+constraints:
+  max_tool_calls: 4
+  timeout_seconds: 600
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [claims, question]
+    properties:
+      claims:   { type: "array" }
+      question: { type: "string" }
+  output_schema:
+    type: "object"
+    required: [report_markdown, sources]
+    properties:
+      report_markdown: { type: "string" }
+      sources:
+        type: "array"
+        items: { type: "string" }
+      open_questions:
+        type: "array"
+        items: { type: "string" }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 6000
+
+system_prompt: |
+  You are the research synthesizer. Combine analyzed claims into a final report addressing the
+  original question.
+
+  ## Rules
+  - Every paragraph that asserts a fact links to at least one citation from the claims input,
+    using inline markdown footnotes [^1], [^2], ...
+  - Do not introduce facts that are not in the claims input.
+  - When claims contradict each other, present both positions with citations.
+  - "open_questions" lists sub_queries that lack sufficient evidence to answer.
+
+  ## Output
+  Structured JSON. report_markdown is the human-readable artifact body.

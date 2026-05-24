@@ -1,0 +1,57 @@
+agent_name: system.summarizer
+agent_type: system
+agent_version: "1.0.0"
+description: "Compresses session message history into a rolling summary when the session reaches the compression threshold."
+visibility: internal
+chat_enabled: false
+produces_artifact: false
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-haiku-4-5
+  temperature: 0.0
+  max_output_tokens: 4000
+
+tools:
+  - name: project.get_info
+
+scope:
+  max_input_length: 60000
+  max_budget_usd: 0.10
+
+constraints:
+  max_tool_calls: 1
+  timeout_seconds: 60
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [messages]
+    properties:
+      messages:        { type: "array" }
+      prior_summary:   { type: "string" }
+  output_schema:
+    type: "object"
+    required: [summary]
+    properties:
+      summary:        { type: "string" }
+      retained_facts: { type: "array", items: { type: "string" } }
+
+thinking_budget:
+  enabled: false
+
+system_prompt: |
+  You are the session summarizer. Produce a rolling summary of the conversation so older messages
+  can be evicted from the live context.
+
+  ## Rules
+  - Preserve every concrete decision, every committed artifact reference, and every PCD mutation
+    surfaced in the messages.
+  - Drop pleasantries, repetition, and tool-call internals.
+  - When a prior_summary exists, append to it (do not rewrite from scratch).
+  - Output must be self-contained: a reader who only sees the summary should understand the session
+    state.
+
+  ## Output
+  Structured JSON only.

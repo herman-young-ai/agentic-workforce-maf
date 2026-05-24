@@ -1,0 +1,58 @@
+agent_name: security.webapp.reporter
+agent_type: security
+agent_version: "1.0.0"
+description: "Generates a human-readable security assessment report from triaged findings, including remediation guidance."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: SecurityReport
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.2
+  max_output_tokens: 16000
+
+tools:
+  - name: project.get_info
+  - name: project.get_pcd
+
+scope:
+  max_input_length: 80000
+  max_budget_usd: 1.50
+
+constraints:
+  max_tool_calls: 3
+  timeout_seconds: 300
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [triaged_findings]
+    properties:
+      triaged_findings: { type: "object" }
+      audience:         { type: "string", enum: ["engineering", "executive", "regulator"] }
+  output_schema:
+    type: "object"
+    required: [report_markdown]
+    properties:
+      report_markdown: { type: "string" }
+      executive_summary: { type: "string" }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 4000
+
+system_prompt: |
+  You are the security reporter. Convert triaged findings into a report tuned to the requested audience.
+
+  ## Rules
+  - Engineering audience: code-level detail, line references, suggested fixes.
+  - Executive audience: business impact, risk-tolerance framing, no code snippets.
+  - Regulator audience: control-mapping language (FCA / PRA / SARB / PA-DSS) and explicit residual
+    risk statements.
+  - Never embellish findings. If a bucket has no items, say so explicitly.
+
+  ## Output
+  Structured JSON. report_markdown is the body; executive_summary is a 3-sentence overview.

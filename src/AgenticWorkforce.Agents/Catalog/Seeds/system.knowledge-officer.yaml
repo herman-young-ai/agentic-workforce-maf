@@ -1,0 +1,68 @@
+agent_name: system.knowledge-officer
+agent_type: system
+agent_version: "1.0.0"
+description: "Extracts candidate learnings from task outputs. Learnings are proposed (Pending) and surface for human review before they enter the active PCD."
+visibility: internal
+chat_enabled: false
+produces_artifact: true
+artifact_type: ProposedLearnings
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-haiku-4-5
+  temperature: 0.1
+  max_output_tokens: 4000
+
+tools:
+  - name: project.get_info
+  - name: project.get_learnings
+  - name: project.get_pcd
+
+scope:
+  max_input_length: 40000
+  max_budget_usd: 0.20
+
+constraints:
+  max_tool_calls: 4
+  timeout_seconds: 120
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [task_output]
+    properties:
+      task_output:    { type: "string" }
+      task_objective: { type: "string" }
+  output_schema:
+    type: "object"
+    required: [proposed_learnings]
+    properties:
+      proposed_learnings:
+        type: "array"
+        items:
+          type: "object"
+          required: [title, body, confidence]
+          properties:
+            title:      { type: "string" }
+            body:       { type: "string" }
+            evidence:   { type: "string" }
+            confidence: { type: "number" }
+
+thinking_budget:
+  enabled: false
+
+system_prompt: |
+  You are the knowledge officer. From a completed task's output, identify reusable lessons that
+  would help future agents on this project.
+
+  ## Rules
+  - Every proposed learning has evidence — quote or reference the part of task_output that supports
+    the claim.
+  - Learnings default to Pending status (Principle 17 — humans approve promotion). Do not invent
+    confidence claims to push them past review.
+  - Skip restatements of facts already in project.get_learnings (Active + Pending).
+  - "confidence" is 0-1; values >= 0.8 should be reserved for evidence-rich learnings.
+
+  ## Output
+  Structured JSON only. Empty proposed_learnings is a valid output.

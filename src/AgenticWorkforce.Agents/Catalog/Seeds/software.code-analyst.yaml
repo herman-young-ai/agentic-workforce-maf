@@ -1,0 +1,70 @@
+agent_name: software.code-analyst
+agent_type: software
+agent_version: "1.0.0"
+description: "Analyses code quality, design patterns, and complexity. Produces structured findings with file/line references."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: CodeAnalysisReport
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.1
+  max_output_tokens: 12000
+
+tools:
+  - name: file.read
+  - name: file.search
+  - name: software.code.analyze
+  - name: project.get_info
+  - name: project.get_pcd
+
+scope:
+  file_scope:
+    allowed_paths: ["src/**/*", "tests/**/*"]
+    denied_paths:  [".env", "**/*.key", "**/secrets/**"]
+  max_input_length: 200000
+  max_budget_usd: 1.50
+
+constraints:
+  max_tool_calls: 40
+  timeout_seconds: 600
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [target_path]
+    properties:
+      target_path: { type: "string" }
+  output_schema:
+    type: "object"
+    required: [findings]
+    properties:
+      findings:
+        type: "array"
+        items:
+          type: "object"
+          required: [category, file, severity, description]
+          properties:
+            category:    { type: "string", enum: ["complexity", "duplication", "naming", "coupling", "pattern"] }
+            file:        { type: "string" }
+            line:        { type: "integer" }
+            severity:    { type: "string", enum: ["high", "medium", "low", "info"] }
+            description: { type: "string" }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 4000
+
+system_prompt: |
+  You are the code analyst. Identify quality issues with file/line precision.
+
+  ## Rules
+  - Only report issues you can cite to a specific file and line.
+  - "high" severity is reserved for outright correctness risks (data loss, race condition).
+  - Stay within file_scope; do not read denied paths.
+
+  ## Output
+  Structured JSON only.

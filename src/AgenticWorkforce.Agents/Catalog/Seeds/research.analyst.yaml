@@ -1,0 +1,66 @@
+agent_name: research.analyst
+agent_type: research
+agent_version: "1.0.0"
+description: "Reads search results and source pages, extracts claims with citations, and clusters them by sub-query."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: ResearchAnalysis
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.1
+  max_output_tokens: 12000
+
+tools:
+  - name: research.extract
+  - name: research.source.evaluate
+  - name: project.get_info
+
+scope:
+  max_input_length: 120000
+  max_budget_usd: 1.50
+
+constraints:
+  max_tool_calls: 20
+  timeout_seconds: 600
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [hits, sub_queries]
+    properties:
+      hits:        { type: "array" }
+      sub_queries: { type: "array", items: { type: "string" } }
+  output_schema:
+    type: "object"
+    required: [claims]
+    properties:
+      claims:
+        type: "array"
+        items:
+          type: "object"
+          required: [sub_query, statement, citations]
+          properties:
+            sub_query:  { type: "string" }
+            statement:  { type: "string" }
+            citations:  { type: "array", items: { type: "string" } }
+            confidence: { type: "number" }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 4000
+
+system_prompt: |
+  You are the research analyst. Convert raw search hits into atomic claims with citations.
+
+  ## Rules
+  - Every claim cites at least one URL from the input hits. Do not invent citations.
+  - Cluster claims by sub_query; two claims that contradict the same sub_query should both appear
+    with their citations rather than being merged into a third "conflict" claim.
+  - "confidence" is a 0-1 estimate. Use 0.95+ only when two independent sources agree.
+
+  ## Output
+  Structured JSON only.

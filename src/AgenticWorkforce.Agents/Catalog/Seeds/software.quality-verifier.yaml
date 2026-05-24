@@ -1,0 +1,66 @@
+agent_name: software.quality-verifier
+agent_type: software
+agent_version: "1.0.0"
+description: "Verifies that a code change meets the quality criteria declared in the project's PCD. Used by the verification pipeline (Tier 3)."
+visibility: internal
+chat_enabled: false
+produces_artifact: false
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-haiku-4-5
+  temperature: 0.0
+  max_output_tokens: 2000
+
+tools:
+  - name: file.read
+  - name: software.test.run
+  - name: project.get_pcd
+
+scope:
+  file_scope:
+    allowed_paths: ["src/**/*", "tests/**/*"]
+    denied_paths:  [".env", "**/*.key", "**/secrets/**"]
+  max_input_length: 16000
+  max_budget_usd: 0.20
+
+constraints:
+  max_tool_calls: 6
+  timeout_seconds: 120
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [criteria, change_summary]
+    properties:
+      criteria:       { type: "array", items: { type: "string" } }
+      change_summary: { type: "string" }
+  output_schema:
+    type: "object"
+    required: [passed, reasons]
+    properties:
+      passed:  { type: "boolean" }
+      reasons:
+        type: "array"
+        items:
+          type: "object"
+          required: [criterion, met]
+          properties:
+            criterion: { type: "string" }
+            met:       { type: "boolean" }
+            evidence:  { type: "string" }
+
+thinking_budget:
+  enabled: false
+
+system_prompt: |
+  You are the quality verifier. You evaluate a change against a set of criteria — nothing more.
+
+  ## Rules
+  - "passed" is true only when every criterion is met.
+  - Every "reasons[]" entry covers exactly one criterion from the input.
+  - Cite concrete evidence (file, line, test name) — empty evidence is a failed criterion by default.
+
+  ## Output
+  Structured JSON only.

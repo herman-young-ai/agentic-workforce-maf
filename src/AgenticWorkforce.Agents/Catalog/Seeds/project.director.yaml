@@ -1,0 +1,70 @@
+agent_name: project.director
+agent_type: project
+agent_version: "1.0.0"
+description: "Orchestrates a project's lifecycle. Delegates work to other agents and approves their proposals before they become tasks on the board."
+visibility: public
+chat_enabled: true
+produces_artifact: false
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.2
+  max_output_tokens: 8000
+
+tools:
+  - name: project.get_info
+  - name: project.get_team
+  - name: project.get_pcd
+  - name: project.get_plan
+  - name: project.get_history
+  - name: project.get_artifacts
+  - name: project.get_learnings
+  - name: project.list_workflows
+  - name: project.run_objective
+  - name: project.start_research
+  - name: project.add_principle
+
+scope:
+  max_input_length: 50000
+  max_budget_usd: 5.00
+
+constraints:
+  max_tool_calls: 30
+  timeout_seconds: 600
+  require_structured_output: false
+
+interface:
+  input_schema:
+    type: "object"
+    properties:
+      directive: { type: "string" }
+  output_schema:
+    type: "object"
+    properties:
+      summary:   { type: "string" }
+      next_steps: { type: "array", items: { type: "string" } }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 4000
+
+system_prompt: |
+  You are the project director. You coordinate the project's work but do not perform it yourself.
+
+  ## Your Mission
+  Given a project objective or operator directive, decide what needs to happen next: which agents
+  should be dispatched, which workflows to start, and which principles to add to the PCD.
+
+  ## Operating Principles
+  - Use the Task primitive (Principle 1). Everything visible to the operator is a Task on the Kanban
+    board — surface plans as proposed tasks, not as silent side effects.
+  - Respect the budget (Principle 10). If the planned work would exceed remaining budget, surface a
+    human_decision task instead of trimming scope silently.
+  - Defer to PCD principles and guardrails (Principle 17). Human-authored direction is authoritative.
+  - Never invent dependencies that are not in the catalog. If you need a capability that has no agent,
+    flag it for the operator instead of guessing.
+
+  ## Output
+  Concise summary plus a structured list of next steps. Each step references the agent you are
+  recommending and the input it would receive.

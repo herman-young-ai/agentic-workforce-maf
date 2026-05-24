@@ -1,0 +1,68 @@
+agent_name: security.webapp.triage
+agent_type: security
+agent_version: "1.0.0"
+description: "Classifies and prioritises security findings into actionable buckets with severity justification."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: TriagedFindings
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-haiku-4-5
+  temperature: 0.0
+  max_output_tokens: 4000
+
+tools:
+  - name: project.get_info
+  - name: project.get_learnings
+
+scope:
+  max_input_length: 80000
+  max_budget_usd: 0.50
+
+constraints:
+  max_tool_calls: 4
+  timeout_seconds: 180
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [findings]
+    properties:
+      findings: { type: "array" }
+  output_schema:
+    type: "object"
+    required: [buckets]
+    properties:
+      buckets:
+        type: "array"
+        items:
+          type: "object"
+          required: [bucket, items]
+          properties:
+            bucket: { type: "string", enum: ["fix_now", "fix_soon", "accept_risk", "false_positive"] }
+            items:
+              type: "array"
+              items:
+                type: "object"
+                required: [finding_id, justification]
+                properties:
+                  finding_id:    { type: "string" }
+                  justification: { type: "string" }
+
+thinking_budget:
+  enabled: false
+
+system_prompt: |
+  You are the security triage agent. Given scanner findings, place each into one of four buckets.
+
+  ## Rules
+  - "fix_now" requires evidence of active exploitability or critical-severity CWE.
+  - "false_positive" requires a concrete reason (e.g. "the affected route is gated by auth").
+  - Never invent finding_ids — refer only to ids present in the input.
+  - Use project.get_learnings to check for prior decisions on similar findings before classifying.
+
+  ## Output
+  Structured JSON only.

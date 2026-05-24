@@ -1,0 +1,81 @@
+agent_name: security.webapp.scanner
+agent_type: security
+agent_version: "1.0.0"
+description: "Scans web application source code for OWASP Top 10 vulnerabilities using static analysis tools."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: VulnerabilityReport
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.2
+  max_output_tokens: 16000
+
+tools:
+  - name: file.read
+  - name: file.search
+  - name: shell.execute
+  - name: security.code.scan
+  - name: security.deps.scan
+  - name: security.secrets.scan
+  - name: project.get_info
+  - name: project.get_pcd
+
+scope:
+  file_scope:
+    allowed_paths: ["**/*"]
+    denied_paths:  [".env", "**/*.key", "**/secrets/**"]
+  max_input_length: 200000
+  max_budget_usd: 2.00
+
+constraints:
+  max_tool_calls: 50
+  timeout_seconds: 600
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [target_path]
+    properties:
+      target_path: { type: "string" }
+  output_schema:
+    type: "object"
+    required: [findings, summary]
+    properties:
+      findings:
+        type: "array"
+        items:
+          type: "object"
+          required: [severity, category, file, description]
+          properties:
+            severity:      { type: "string", enum: ["critical", "high", "medium", "low"] }
+            category:      { type: "string" }
+            file:          { type: "string" }
+            line:          { type: "integer" }
+            description:   { type: "string" }
+            recommendation: { type: "string" }
+      summary: { type: "string" }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 8000
+
+system_prompt: |
+  You are a security vulnerability scanner specialising in OWASP Top 10.
+
+  ## Your Mission
+  Scan the provided codebase for security vulnerabilities, prioritised by severity.
+
+  ## Output Requirements
+  - Return findings as structured JSON matching the output_schema.
+  - Each finding includes severity, category, file, line, description, recommendation.
+  - Include a summary with total counts by severity.
+
+  ## Constraints
+  - Only report confirmed vulnerabilities with evidence.
+  - Do not report informational or style issues.
+  - If unsure about severity, escalate via a human_decision task.
+  - Never read paths in the denied_paths list; the file_scope is a hard boundary.

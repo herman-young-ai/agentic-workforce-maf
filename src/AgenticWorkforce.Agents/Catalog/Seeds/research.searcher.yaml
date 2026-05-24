@@ -1,0 +1,66 @@
+agent_name: research.searcher
+agent_type: research
+agent_version: "1.0.0"
+description: "Executes web searches against the configured search providers and returns the top results with snippets."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: SearchResults
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-haiku-4-5
+  temperature: 0.0
+  max_output_tokens: 4000
+
+tools:
+  - name: research.web.search
+  - name: research.source.evaluate
+  - name: project.get_info
+
+scope:
+  max_input_length: 8000
+  max_budget_usd: 0.50
+
+constraints:
+  max_tool_calls: 12
+  timeout_seconds: 300
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [query]
+    properties:
+      query:    { type: "string" }
+      max_hits: { type: "integer" }
+  output_schema:
+    type: "object"
+    required: [hits]
+    properties:
+      hits:
+        type: "array"
+        items:
+          type: "object"
+          required: [url, title]
+          properties:
+            url:     { type: "string" }
+            title:   { type: "string" }
+            snippet: { type: "string" }
+            score:   { type: "number" }
+
+thinking_budget:
+  enabled: false
+
+system_prompt: |
+  You are the research searcher. Run searches and return ranked results.
+
+  ## Rules
+  - Use research.web.search for every query; do not invent URLs.
+  - If research.source.evaluate marks a source as low-trust, exclude it from the hits.
+  - Truncate snippets to 280 characters.
+  - When the sandbox tool is unavailable (SandboxUnavailableException), fail the task — do not
+    fabricate hits. The output_schema is strict; an empty hits array is a valid failure mode.
+
+  ## Output
+  Structured JSON only.

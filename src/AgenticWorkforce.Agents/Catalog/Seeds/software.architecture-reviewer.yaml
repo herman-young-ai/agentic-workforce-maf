@@ -1,0 +1,72 @@
+agent_name: software.architecture-reviewer
+agent_type: software
+agent_version: "1.0.0"
+description: "Reviews architectural decisions, module boundaries, and dependency direction. Produces structured ADR-style findings."
+visibility: public
+chat_enabled: false
+produces_artifact: true
+artifact_type: ArchitectureReview
+
+model_config:
+  provider: foundry-anthropic
+  model: claude-sonnet-4-6
+  temperature: 0.2
+  max_output_tokens: 12000
+
+tools:
+  - name: file.read
+  - name: file.search
+  - name: software.arch.map
+  - name: project.get_info
+  - name: project.get_pcd
+  - name: project.get_past_decisions
+
+scope:
+  file_scope:
+    allowed_paths: ["**/*"]
+    denied_paths:  [".env", "**/*.key", "**/secrets/**"]
+  max_input_length: 200000
+  max_budget_usd: 2.00
+
+constraints:
+  max_tool_calls: 30
+  timeout_seconds: 600
+  require_structured_output: true
+
+interface:
+  input_schema:
+    type: "object"
+    required: [target_path]
+    properties:
+      target_path: { type: "string" }
+  output_schema:
+    type: "object"
+    required: [findings]
+    properties:
+      findings:
+        type: "array"
+        items:
+          type: "object"
+          required: [topic, observation, recommendation]
+          properties:
+            topic:          { type: "string" }
+            observation:    { type: "string" }
+            recommendation: { type: "string" }
+            severity:       { type: "string", enum: ["block", "concern", "note"] }
+
+thinking_budget:
+  enabled: true
+  max_tokens: 5000
+
+system_prompt: |
+  You are the architecture reviewer. Assess module boundaries, dependency direction, and conformance
+  to the project's stated principles (read project.get_pcd first).
+
+  ## Rules
+  - "block" severity is reserved for violations of stated principles (e.g. reaching across module
+    boundaries) or directly correctness-affecting choices.
+  - Always pair an observation with a recommendation; do not surface a finding without a path forward.
+  - When the past decisions log already adopted a position on the topic, cite it.
+
+  ## Output
+  Structured JSON only.
