@@ -4,6 +4,8 @@ using AgenticWorkforce.Agents.Prompts;
 using AgenticWorkforce.Agents.Runtime;
 using AgenticWorkforce.Agents.Services;
 using AgenticWorkforce.Agents.Tools;
+using AgenticWorkforce.Agents.Tools.Mcp;
+using AgenticWorkforce.Agents.Verification;
 using AgenticWorkforce.Domain.Entities;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using Microsoft.Extensions.Configuration;
@@ -62,6 +64,14 @@ public static class AgentServiceExtensions
         // Context (Phase 7 will wire the provider into AIContextProviders on the agent)
         services.AddScoped<IProjectContextProviderFactory, ProjectContextProviderFactory>();
         services.AddScoped<IContextAssembler, ContextAssembler>();
+
+        // Phase 7e verification pipeline. AgentVerifier consumes IAgentRuntime to invoke
+        // system.verifier; the pipeline guards against recursion against its own agent.
+        services.AddSingleton<SchemaVerifier>();
+        services.AddSingleton<RuleVerifier>();
+        services.AddScoped<AgentVerifier>();
+        services.AddScoped<IVerifier, VerificationPipeline>();
+        services.AddSingleton<IMcpToolResolver, McpToolResolver>();
 
         // Middleware channels (bounded — Principle 19). Capacity from options.
         services.AddSingleton(sp =>
