@@ -25,6 +25,8 @@
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <!-- IHostedService for startup data-seeding services (StubModelPricingSeeder). -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <!-- YAML parser for AgentSeedService (Phase 7). -->
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,3 +1,4 @@
+using System.Reflection;
 using AgenticWorkforce.Domain.Interfaces.Repositories;
 using AgenticWorkforce.Domain.Interfaces.Services;
 using AgenticWorkforce.Domain.Services;
@@ -171,6 +172,9 @@ public static class InfrastructureServiceExtensions
         // Service stubs — replaced in Phase 6+ (embedding provider) and Phase 11 (blob storage)
         services.AddScoped<IEmbeddingService, StubEmbeddingService>();
 
+        // AgentSeedService is wired by AddAgentSeedingFromAssembly when a host supplies
+        // the seed assembly (Worker does, Api does not — Api never runs the seeder).
+
         // Fail-fast on missing DocumentStore:BasePath, but defer the read
         // into the DI factory so WebApplicationFactory's
         // ConfigureAppConfiguration override applies (same lazy pattern as
@@ -191,6 +195,27 @@ public static class InfrastructureServiceExtensions
             return new LocalFileDocumentStore(docRoot);
         });
 
+        return services;
+    }
+
+    /// <summary>
+    /// Supplies the assembly containing the embedded <c>*.Catalog.Seeds.*.yaml</c>
+    /// resources to <see cref="AgentSeedService"/>. The Worker (which references
+    /// both Infrastructure and Agents) is the canonical caller; integration tests
+    /// can pass a fixture assembly that exposes its own embedded YAMLs.
+    /// <para>
+    /// Splitting this out preserves the layer rule
+    /// <c>Infrastructure ↛ Agents</c> — Infrastructure stays Agents-free; the host
+    /// composes the two.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddAgentSeedingFromAssembly(
+        this IServiceCollection services,
+        Assembly seedAssembly)
+    {
+        ArgumentNullException.ThrowIfNull(seedAssembly);
+        services.AddSingleton<IAgentSeedSource>(_ => new EmbeddedYamlAgentSeedSource(seedAssembly));
+        services.AddHostedService<AgentSeedService>();
         return services;
     }
 }

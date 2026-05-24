@@ -37,6 +37,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Prompts/Categories/*.md" />
     <EmbeddedResource Include="Prompts/Organization/*.md" />
+    <!-- Phase 7 agent catalog seed definitions. Read by Infrastructure.EmbeddedYamlAgentSeedSource
+         via the Agents assembly's manifest resource stream. -->
+    <EmbeddedResource Include="Catalog/Seeds/*.yaml" />
   </ItemGroup>
 
   <Target Name="CopyOrganizationPromptsFromDocs" BeforeTargets="BeforeBuild">
